@@ -10,6 +10,8 @@
 #include <zephyr/kernel.h>
 #include <zephyr/random/random.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/logging/log_backend.h>
+#include <zephyr/sys/iterable_sections.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -23,6 +25,41 @@ static int64_t session_uptime_start = 0;  /* Uptime at session start */
 
 /* Static buffer for JSON serialization */
 static char session_json_buf[1024];
+
+/* Helper to find and get the FS logging backend */
+static const struct log_backend *get_fs_backend(void)
+{
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
+		if (backend->name != NULL && strcmp(backend->name, "fs") == 0) {
+			return backend;
+		}
+	}
+	return NULL;
+}
+
+/* Helper to safely perform SD card operations by deactivating FS backend */
+static void *fs_backend_ctx = NULL;
+
+static void deactivate_fs_backend(void)
+{
+	const struct log_backend *fs_backend = get_fs_backend();
+	if (fs_backend != NULL) {
+		/* Store context before deactivating */
+		fs_backend_ctx = fs_backend->cb->ctx;
+		log_backend_deactivate(fs_backend);
+		/* Wait 50ms for any pending log operations to complete */
+		k_msleep(50);
+	}
+}
+
+static void activate_fs_backend(void)
+{
+	const struct log_backend *fs_backend = get_fs_backend();
+	if (fs_backend != NULL && fs_backend_ctx != NULL) {
+		log_backend_activate(fs_backend, fs_backend_ctx);
+		fs_backend_ctx = NULL;
+	}
+}
 
 void session_mgr_generate_uuid(char *buf)
 {
@@ -95,12 +132,16 @@ static int rotate_existing_session(void)
 		return 0;
 	}
 
+	/* Deactivate FS backend before SD card operations */
+	deactivate_fs_backend();
+
 	/* Read existing active.json to get UUID */
 	char json_buf[256];
 	int bytes_read = sd_logger_read_file(ACTIVE_JSON_FILE, json_buf, sizeof(json_buf) - 1);
 	if (bytes_read <= 0) {
 		LOG_WRN("Failed to read existing active.json, deleting");
 		/* Can't read, just continue with new session */
+		activate_fs_backend();
 		return 0;
 	}
 	json_buf[bytes_read] = '\0';
@@ -110,6 +151,7 @@ static int rotate_existing_session(void)
 	int ret = parse_uuid_from_json(json_buf, old_uuid);
 	if (ret != 0) {
 		LOG_WRN("Failed to parse UUID from active.json");
+		activate_fs_backend();
 		return 0;
 	}
 
@@ -119,11 +161,14 @@ static int rotate_existing_session(void)
 	char new_name[64];
 	
 	snprintf(new_name, sizeof(new_name), "%s.json", old_uuid);
-	sd_logger_rename(ACTIVE_JSON_FILE, new_name);
+	ret = sd_logger_rename(ACTIVE_JSON_FILE, new_name);
+
+	/* Reactivate FS backend after SD card operations */
+	activate_fs_backend();
 
 	/* CSV data is now in log files via LOG_BACKEND_FS - no separate file to rename */
 
-	return 0;
+	return ret;
 }
 
 int session_mgr_init(void)
@@ -276,13 +321,20 @@ int session_mgr_save(void)
 
 	session_json_buf[len] = '\0';
 
+	/* Deactivate FS backend before SD card operation to avoid concurrent access */
+	deactivate_fs_backend();
+
 	LOG_INF("Writing active.json (%d bytes)...", len);
 	int ret = sd_logger_write_file(ACTIVE_JSON_FILE, session_json_buf, len);
 	if (ret != 0) {
 		LOG_ERR("Failed to write session file: %d", ret);
+		activate_fs_backend();
 		return ret;
 	}
 	LOG_INF("active.json written successfully");
+
+	/* Reactivate FS backend after SD card operation */
+	activate_fs_backend();
 
 	return 0;
 }
