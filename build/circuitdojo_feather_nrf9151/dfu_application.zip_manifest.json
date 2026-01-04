@@ -1,0 +1,20 @@
+{
+    "format-version": 1,
+    "time": 1767510709,
+    "files": [
+        {
+            "type": "application",
+            "board": "circuitdojo_feather_nrf9151",
+            "soc": "nrf9151",
+            "load_address": 98304,
+            "image_index": "0",
+            "slot_index_primary": "1",
+            "slot_index_secondary": "2",
+            "version_MCUBOOT": "0.0.0+0",
+            "size": 296534,
+            "file": "app.signed.bin",
+            "modtime": 1767510708
+        }
+    ],
+    "name": "app"
+}

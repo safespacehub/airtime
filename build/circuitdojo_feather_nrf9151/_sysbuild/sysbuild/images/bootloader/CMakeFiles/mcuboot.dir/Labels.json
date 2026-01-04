@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/CMakeFiles/mcuboot"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/CMakeFiles/mcuboot.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/CMakeFiles/mcuboot-complete.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-build.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-configure.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-download.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-install.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-mkdir.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-patch.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/bootloader/mcuboot-prefix/src/mcuboot-stamp/mcuboot-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"mcuboot"
+		],
+		"name" : "mcuboot"
+	}
+}

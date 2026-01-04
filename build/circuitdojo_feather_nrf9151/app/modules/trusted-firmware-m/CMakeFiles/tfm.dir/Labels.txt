@@ -1,0 +1,13 @@
+# Target labels
+ tfm
+# Source files and their labels
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/CMakeFiles/tfm
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/CMakeFiles/tfm.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/CMakeFiles/tfm-complete.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-build.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-configure.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-download.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-install.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-mkdir.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-patch.rule
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/trusted-firmware-m/tfm-prefix/src/tfm-stamp/tfm-update.rule

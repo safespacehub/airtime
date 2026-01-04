@@ -1,0 +1,96 @@
+/*
+ * Flight Timer devicetree overlay for Circuit Dojo nRF9151 Feather
+ *
+ * Disables onboard flash and reconfigures SPI3 for SD card:
+ *   - SCK  = P0.20
+ *   - MOSI = P0.21
+ *   - MISO = P0.22
+ *   - CS   = P0.29
+ */
+
+/ {
+	aliases {
+		rtc = &pcf8523;
+		pressure = &bmp581;
+		/delete-property/ spi-flash0;
+		/delete-property/ ext-flash;
+	};
+
+	chosen {
+		/delete-property/ nordic,pm-ext-flash;
+	};
+
+	/* Disable the littlefs fstab entry that uses flash */
+	fstab {
+		/delete-node/ lfs;
+	};
+};
+
+/* Override SPI3 pinctrl for SD card pins */
+&pinctrl {
+	spi3_default: spi3_default {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 20)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 21)>,
+				<NRF_PSEL(SPIM_MISO, 0, 22)>;
+		};
+	};
+
+	spi3_sleep: spi3_sleep {
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 0, 20)>,
+				<NRF_PSEL(SPIM_MOSI, 0, 21)>,
+				<NRF_PSEL(SPIM_MISO, 0, 22)>;
+			low-power-enable;
+		};
+	};
+};
+
+/* I2C2 bus: BMP581 barometer, PCF8523 RTC */
+&i2c2 {
+	status = "okay";
+
+	/* BMP581 barometric pressure sensor */
+	bmp581: bmp581@47 {
+		compatible = "bosch,bmp581";
+		reg = <0x47>;
+	};
+
+	/* PCF8523 RTC with battery backup */
+	pcf8523: rtc@68 {
+		compatible = "nxp,pcf8523";
+		reg = <0x68>;
+		battery-switch-over = "standard";
+		quartz-load-femtofarads = <7000>;
+	};
+};
+
+/* Disable the onboard flash */
+&w25q128jv {
+	status = "disabled";
+};
+
+/* Reconfigure SPI3 for SD card */
+&spi3 {
+	status = "okay";
+	cs-gpios = <&gpio0 29 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-1 = <&spi3_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	/delete-node/ w25q128jv@0;
+
+	sdhc0: sdhc@0 {
+		compatible = "zephyr,sdhc-spi-slot";
+		reg = <0>;
+		status = "okay";
+		/* 4MHz for data transfer - driver uses 400KHz for init automatically */
+		spi-max-frequency = <4000000>;
+		power-delay-ms = <500>;
+		mmc {
+			compatible = "zephyr,sdmmc-disk";
+			disk-name = "SD";
+			status = "okay";
+		};
+	};
+};

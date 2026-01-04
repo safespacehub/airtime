@@ -1,0 +1,2 @@
+# Load Zephyr board defconfig descriptions.
+osource "/home/turbo/airtime2/nfed/boards/circuitdojo/feather_nrf9151/Kconfig.defconfig"

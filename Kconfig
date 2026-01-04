@@ -1,0 +1,28 @@
+# Flight Timer Application Kconfig
+
+menu "Flight Timer Configuration"
+
+config GNSS_SAMPLE_SUPL_HOSTNAME
+	string "SUPL server hostname"
+	default "supl.google.com"
+	help
+	  Hostname for SUPL A-GNSS assistance server.
+	  Common options: supl.google.com, supl.nokia.com, lbs.geo.t-mobile.com
+
+config GNSS_SAMPLE_SUPL_PORT
+	int "SUPL server port"
+	default 7276
+	help
+	  Port for SUPL A-GNSS assistance server.
+
+config FLIGHT_TIMER_LOG_BACKEND_SD
+	bool "Enable SD card log backend"
+	default y
+	depends on LOG
+	help
+	  Enables logging to SD card file.
+
+endmenu
+
+source "Kconfig.zephyr"
+

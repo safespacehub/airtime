@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/CMakeFiles/app"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/CMakeFiles/app.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/CMakeFiles/app-complete.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-build.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-configure.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-download.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-install.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-mkdir.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-patch.rule"
+		},
+		{
+			"file" : "/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/sysbuild/images/app-prefix/src/app-stamp/app-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"app"
+		],
+		"name" : "app"
+	}
+}

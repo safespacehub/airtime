@@ -1,0 +1,9 @@
+default: app
+build_dir: /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151
+domains:
+  - name: app
+    build_dir: /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app
+  - name: mcuboot
+    build_dir: /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/mcuboot
+flash_order:
+  - app

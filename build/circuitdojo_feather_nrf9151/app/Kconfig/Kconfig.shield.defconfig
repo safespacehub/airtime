@@ -1,0 +1,2 @@
+osource "/home/turbo/airtime2/nfed/boards/shields/*/Kconfig.defconfig"
+osource "/home/turbo/airtime2/nrf/boards/shields/*/Kconfig.defconfig"

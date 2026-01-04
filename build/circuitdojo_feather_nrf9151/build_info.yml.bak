@@ -1,0 +1,29 @@
+cmake:
+  application:
+    source-dir: /home/turbo/airtime2/zephyr/share/sysbuild
+  board:
+    name: circuitdojo_feather_nrf9151
+    path:
+     - /home/turbo/airtime2/nfed/boards/circuitdojo/feather_nrf9151
+    qualifiers: nrf9151/ns
+    revision: 1
+  images:
+   - name: app
+     source-dir: /home/turbo/airtime2/app
+     type: MAIN
+   - name: mcuboot
+     source-dir: /home/turbo/airtime2/bootloader/mcuboot/boot/zephyr/
+     type: BOOTLOADER
+  kconfig:
+    files:
+     - /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/empty.conf
+     - /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/_sysbuild/empty.conf
+     - /home/turbo/airtime2/app/sysbuild.conf
+    user-files:
+     - /home/turbo/airtime2/app/sysbuild.conf
+  sysbuild: ON
+version: 0.1.0
+west:
+  command: /home/turbo/.zephyrtools/env/bin/west build -b circuitdojo_feather_nrf9151/nrf9151/ns -p -d build/circuitdojo_feather_nrf9151 --sysbuild
+  topdir: /home/turbo/airtime2
+  version: 1.5.0
