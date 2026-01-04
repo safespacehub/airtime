@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Data Viewer</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .file-input-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        input[type="file"] {
+            padding: 8px;
+            border: 2px dashed #3498db;
+            border-radius: 4px;
+            background: #ecf0f1;
+            cursor: pointer;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-card {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .charts-panel {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        
+        .charts-panel > h2 {
+            grid-column: 1 / -1;
+            margin-bottom: 0;
+        }
+        
+        .charts-panel h3 {
+            font-size: 16px;
+            color: #34495e;
+            margin-bottom: 10px;
+        }
+        
+        @media (max-width: 1200px) {
+            #map {
+                height: 500px;
+            }
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .panel h2 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 18px;
+        }
+        
+        #map {
+            height: 500px;
+            width: 100%;
+            border-radius: 4px;
+        }
+        
+        @media (min-width: 1200px) {
+            #map {
+                height: 700px;
+            }
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        
+        .data-table-container {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #ecf0f1;
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+        }
+        
+        th:hover {
+            background: #bdc3c7;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .state-filter {
+            margin-bottom: 15px;
+        }
+        
+        .state-filter label {
+            margin-right: 10px;
+        }
+        
+        .state-filter select {
+            padding: 5px 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .info {
+            background: #3498db;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Flight Data Viewer</h1>
+            <div class="file-input-container">
+                <input type="file" id="csvFile" accept=".csv" />
+                <button id="loadBtn" onclick="loadCSV()">Load CSV</button>
+                <button id="clearBtn" onclick="clearData()" disabled>Clear</button>
+            </div>
+            <div id="stats" class="stats" style="display: none;"></div>
+        </header>
+        
+        <div id="errorMessage" style="display: none;"></div>
+        <div id="infoMessage" style="display: none;"></div>
+        
+        <div class="main-content">
+            <div class="panel map-panel">
+                <h2>Flight Path Map</h2>
+                <div id="map"></div>
+            </div>
+            
+            <div class="panel charts-panel">
+                <h2>Charts</h2>
+                <div>
+                    <h3>Altitude Chart</h3>
+                    <div class="chart-container">
+                        <canvas id="altitudeChart"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h3>Speed Chart</h3>
+                    <div class="chart-container">
+                        <canvas id="speedChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Data Table</h2>
+            <div class="state-filter">
+                <label for="stateFilter">Filter by GPS State:</label>
+                <select id="stateFilter" onchange="filterTable()">
+                    <option value="all">All States</option>
+                    <option value="U">Unknown</option>
+                    <option value="S">Stopped</option>
+                    <option value="T">Taxi</option>
+                    <option value="F">Flight</option>
+                </select>
+            </div>
+            <div class="data-table-container">
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable(0)">Timestamp ↑↓</th>
+                            <th onclick="sortTable(1)">Baro State ↑↓</th>
+                            <th onclick="sortTable(2)">GPS State ↑↓</th>
+                            <th onclick="sortTable(3)">Latitude ↑↓</th>
+                            <th onclick="sortTable(4)">Longitude ↑↓</th>
+                            <th onclick="sortTable(5)">Speed (kts) ↑↓</th>
+                            <th onclick="sortTable(6)">Altitude (ft) ↑↓</th>
+                            <th onclick="sortTable(7)">Temperature (°C) ↑↓</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        let flightData = [];
+        let map = null;
+        let pathLayer = null;
+        let markers = [];
+        let altitudeChart = null;
+        let speedChart = null;
+        let currentSortColumn = -1;
+        let sortDirection = 1;
+        let filteredData = [];
+        
+        // Downsampling configuration
+        const MAX_MAP_POINTS = 2000;
+        const MAX_CHART_POINTS = 1500;
+        const MAX_TABLE_ROWS = 1000;
+        
+        /**
+         * Downsample data using Largest-Triangle-Three-Buckets algorithm
+         * This preserves important features while reducing point count
+         */
+        function downsampleLTTB(data, threshold) {
+            if (data.length <= threshold) {
+                return data;
+            }
+            
+            // Simple decimation for now (every Nth point)
+            // More sophisticated: LTTB algorithm
+            const step = Math.ceil(data.length / threshold);
+            const downsampled = [];
+            
+            // Always include first and last points
+            downsampled.push(data[0]);
+            
+            for (let i = step; i < data.length - step; i += step) {
+                downsampled.push(data[i]);
+            }
+            
+            // Always include last point
+            if (data.length > 1) {
+                downsampled.push(data[data.length - 1]);
+            }
+            
+            return downsampled;
+        }
+        
+        /**
+         * Simple decimation - take every Nth point
+         */
+        function downsampleSimple(data, maxPoints) {
+            if (data.length <= maxPoints) {
+                return data;
+            }
+            
+            const step = Math.ceil(data.length / maxPoints);
+            const downsampled = [];
+            
+            // Always include first and last
+            downsampled.push(data[0]);
+            
+            for (let i = step; i < data.length - 1; i += step) {
+                downsampled.push(data[i]);
+            }
+            
+            if (data.length > 1) {
+                downsampled.push(data[data.length - 1]);
+            }
+            
+            return downsampled;
+        }
+        
+        // State code mappings
+        const baroStateNames = {
+            'G': 'Ground',
+            'C': 'Climbing',
+            'R': 'Cruising',
+            'D': 'Descending'
+        };
+        
+        const gpsStateNames = {
+            'U': 'Unknown',
+            'S': 'Stopped',
+            'T': 'Taxi',
+            'F': 'Flight'
+        };
+        
+        // State colors for map
+        const stateColors = {
+            'U': '#95a5a6',  // Gray
+            'S': '#e74c3c',  // Red
+            'T': '#f39c12',  // Orange
+            'F': '#27ae60'   // Green
+        };
+        
+        // Baro state colors
+        const baroStateColors = {
+            'G': '#95a5a6',  // Gray - Ground
+            'C': '#3498db',  // Blue - Climbing
+            'R': '#27ae60',  // Green - Cruising
+            'D': '#e74c3c'   // Red - Descending
+        };
+        
+        // GPS state colors (same as stateColors but explicit)
+        const gpsStateColors = {
+            'U': '#95a5a6',  // Gray - Unknown
+            'S': '#e74c3c',  // Red - Stopped
+            'T': '#f39c12',  // Orange - Taxi
+            'F': '#27ae60'   // Green - Flight
+        };
+        
+        /**
+         * Calculate altitude in feet from barometric pressure in Pascals
+         * Uses the same formula as baro_state.c
+         */
+        function pressureToAltitudeFt(pressurePa) {
+            if (!pressurePa || pressurePa <= 0) {
+                return 0;
+            }
+            const SEA_LEVEL_PRESSURE_PA = 101325.0;
+            const ALTITUDE_CONSTANT = 145366.45;
+            const PRESSURE_EXPONENT = 0.190284;
+            
+            return ALTITUDE_CONSTANT * (1.0 - Math.pow(pressurePa / SEA_LEVEL_PRESSURE_PA, PRESSURE_EXPONENT));
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.className = 'error';
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function showInfo(message) {
+            const infoDiv = document.getElementById('infoMessage');
+            infoDiv.textContent = message;
+            infoDiv.className = 'info';
+            infoDiv.style.display = 'block';
+        }
+        
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(line => line.trim());
+            if (lines.length < 2) {
+                throw new Error('CSV file must have at least a header and one data row');
+            }
+            
+            // Parse CSV properly handling quoted fields
+            function parseCSVLine(line) {
+                const result = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        result.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                result.push(current.trim());
+                return result;
+            }
+            
+            const headers = parseCSVLine(lines[0]);
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length >= headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index] ? values[index].trim() : '';
+                    });
+                    data.push(row);
+                }
+            }
+            
+            return data;
+        }
+        
+        function loadCSV() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Please select a CSV file');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const csvText = e.target.result;
+                    flightData = parseCSV(csvText);
+                    
+                    if (flightData.length === 0) {
+                        showError('No data found in CSV file');
+                        return;
+                    }
+                    
+                    filteredData = flightData;
+                    const dataCount = flightData.length;
+                    let infoMsg = `Loaded ${dataCount.toLocaleString()} data points`;
+                    
+                    // Warn if data will be downsampled
+                    if (dataCount > MAX_MAP_POINTS || dataCount > MAX_CHART_POINTS) {
+                        infoMsg += ` (will be downsampled for display)`;
+                    }
+                    
+                    showInfo(infoMsg);
+                    updateVisualizations();
+                    document.getElementById('clearBtn').disabled = false;
+                } catch (error) {
+                    showError('Error parsing CSV: ' + error.message);
+                }
+            };
+            
+            reader.onerror = function() {
+                showError('Error reading file');
+            };
+            
+            reader.readAsText(file);
+        }
+        
+        function clearData() {
+            flightData = [];
+            filteredData = [];
+            updateVisualizations();
+            document.getElementById('csvFile').value = '';
+            document.getElementById('clearBtn').disabled = true;
+            document.getElementById('stats').style.display = 'none';
+        }
+        
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            
+            return R * c;
+        }
+        
+        function calculateStats() {
+            if (flightData.length === 0) return;
+            
+            let totalDistance = 0;
+            let maxAltitude = -Infinity;
+            let maxSpeed = -Infinity;
+            let flightTime = 0;
+            let lastFlightTime = null;
+            
+            // Calculate total runtime (first to last timestamp)
+            let totalRuntime = 0;
+            if (flightData.length > 0) {
+                const firstTime = new Date(flightData[0].timestamp);
+                const lastTime = new Date(flightData[flightData.length - 1].timestamp);
+                totalRuntime = (lastTime - firstTime) / 1000; // seconds
+            }
+            
+            // Sample count
+            const sampleCount = flightData.length;
+            
+            for (let i = 0; i < flightData.length; i++) {
+                const row = flightData[i];
+                
+                // Distance
+                if (i > 0) {
+                    const prev = flightData[i-1];
+                    const lat1 = parseFloat(prev.latitude);
+                    const lon1 = parseFloat(prev.longitude);
+                    const lat2 = parseFloat(row.latitude);
+                    const lon2 = parseFloat(row.longitude);
+                    
+                    if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2) &&
+                        lat1 !== 0 && lon1 !== 0 && lat2 !== 0 && lon2 !== 0) {
+                        totalDistance += calculateDistance(lat1, lon1, lat2, lon2);
+                    }
+                }
+                
+                // Max altitude (convert meters to feet)
+                const alt = parseFloat(row.altitude_m);
+                if (!isNaN(alt)) {
+                    maxAltitude = Math.max(maxAltitude, alt);
+                }
+                
+                // Max speed
+                const speed = parseFloat(row.speed_kts);
+                if (!isNaN(speed)) {
+                    maxSpeed = Math.max(maxSpeed, speed);
+                }
+                
+                // Flight time (when GPS state is F)
+                if (row.gps_state === 'F') {
+                    if (lastFlightTime === null) {
+                        lastFlightTime = new Date(row.timestamp);
+                    }
+                } else {
+                    if (lastFlightTime !== null) {
+                        const endTime = new Date(row.timestamp);
+                        flightTime += (endTime - lastFlightTime) / 1000; // seconds
+                        lastFlightTime = null;
+                    }
+                }
+            }
+            
+            // Handle case where flight ends at last data point
+            if (lastFlightTime !== null && flightData.length > 0) {
+                const lastRow = flightData[flightData.length - 1];
+                const endTime = new Date(lastRow.timestamp);
+                flightTime += (endTime - lastFlightTime) / 1000;
+            }
+            
+            // Convert distance from meters to nautical miles (1 meter = 0.000539957 nautical miles)
+            const totalDistanceNM = totalDistance * 0.000539957;
+            
+            // Convert altitude from meters to feet (1 meter = 3.28084 feet)
+            const maxAltitudeFt = maxAltitude * 3.28084;
+            
+            const statsHtml = `
+                <div class="stat-card">
+                    <div class="stat-label">Total Distance</div>
+                    <div class="stat-value">${totalDistanceNM.toFixed(2)} nm</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Max Altitude</div>
+                    <div class="stat-value">${maxAltitudeFt.toFixed(0)} ft</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Max Speed</div>
+                    <div class="stat-value">${maxSpeed.toFixed(1)} kts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Flight Time</div>
+                    <div class="stat-value">${formatTime(flightTime)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Runtime</div>
+                    <div class="stat-value">${formatTime(totalRuntime)}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Samples</div>
+                    <div class="stat-value">${sampleCount.toLocaleString()}</div>
+                </div>
+            `;
+            
+            document.getElementById('stats').innerHTML = statsHtml;
+            document.getElementById('stats').style.display = 'grid';
+        }
+        
+        function formatTime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        function updateMap() {
+            if (!map) {
+                map = L.map('map').setView([38.7, -121.3], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+            }
+            
+            // Clear existing layers
+            if (pathLayer) {
+                map.removeLayer(pathLayer);
+            }
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            
+            // Filter valid GPS coordinates
+            let validPoints = filteredData.filter(row => {
+                const lat = parseFloat(row.latitude);
+                const lon = parseFloat(row.longitude);
+                return !isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0;
+            });
+            
+            if (validPoints.length === 0) {
+                return;
+            }
+            
+            // Downsample for map display if needed
+            const originalCount = validPoints.length;
+            if (validPoints.length > MAX_MAP_POINTS) {
+                validPoints = downsampleSimple(validPoints, MAX_MAP_POINTS);
+                console.log(`Downsampled map points: ${originalCount} -> ${validPoints.length}`);
+            }
+            
+            // Create path
+            const pathCoords = validPoints.map(row => [
+                parseFloat(row.latitude),
+                parseFloat(row.longitude)
+            ]);
+            
+            // Create colored segments by state
+            const segments = [];
+            let currentSegment = [];
+            let currentState = null;
+            
+            for (let i = 0; i < validPoints.length; i++) {
+                const state = validPoints[i].gps_state;
+                if (state !== currentState && currentSegment.length > 0) {
+                    segments.push({ coords: currentSegment, state: currentState });
+                    currentSegment = [];
+                }
+                currentState = state;
+                currentSegment.push(pathCoords[i]);
+            }
+            if (currentSegment.length > 0) {
+                segments.push({ coords: currentSegment, state: currentState });
+            }
+            
+            // Draw segments with different colors
+            segments.forEach(segment => {
+                const color = stateColors[segment.state] || '#3498db';
+                const polyline = L.polyline(segment.coords, {
+                    color: color,
+                    weight: 8,
+                    opacity: 1.0,
+                    lineJoin: 'round',
+                    lineCap: 'round'
+                }).addTo(map);
+                
+                // Add markers at segment endpoints
+                if (segment.coords.length > 0) {
+                    const startIdx = pathCoords.indexOf(segment.coords[0]);
+                    const endIdx = pathCoords.indexOf(segment.coords[segment.coords.length - 1]);
+                    
+                    if (startIdx >= 0 && startIdx < validPoints.length) {
+                        const startPoint = validPoints[startIdx];
+                        const marker = L.circleMarker(segment.coords[0], {
+                            radius: 8,
+                            fillColor: color,
+                            color: '#fff',
+                            weight: 3,
+                            fillOpacity: 1.0
+                        }).addTo(map);
+                        
+                        const altitudeFt = (parseFloat(startPoint.altitude_m) || 0) * 3.28084;
+                        marker.bindPopup(`
+                            <strong>Time:</strong> ${startPoint.timestamp}<br>
+                            <strong>State:</strong> ${gpsStateNames[startPoint.gps_state]}<br>
+                            <strong>Speed:</strong> ${startPoint.speed_kts} kts<br>
+                            <strong>Altitude:</strong> ${altitudeFt.toFixed(0)} ft
+                        `);
+                        markers.push(marker);
+                    }
+                }
+            });
+            
+            // Fit map to bounds
+            if (pathCoords.length > 0) {
+                const bounds = L.latLngBounds(pathCoords);
+                map.fitBounds(bounds, { padding: [20, 20] });
+            }
+        }
+        
+        function updateCharts() {
+            // Downsample data for charts if needed
+            let chartData = filteredData;
+            const originalCount = chartData.length;
+            
+            if (chartData.length > MAX_CHART_POINTS) {
+                chartData = downsampleSimple(chartData, MAX_CHART_POINTS);
+                console.log(`Downsampled chart data: ${originalCount} -> ${chartData.length}`);
+            }
+            
+            const timestamps = chartData.map(row => row.timestamp);
+            
+            // Calculate altitude from pressure for each data point
+            const altitudes = chartData.map(row => {
+                const pressure = parseFloat(row.pressure) || 0;
+                return pressureToAltitudeFt(pressure);
+            });
+            
+            const speeds = chartData.map(row => parseFloat(row.speed_kts) || 0);
+            
+            // Altitude chart
+            const altCtx = document.getElementById('altitudeChart').getContext('2d');
+            if (altitudeChart) {
+                altitudeChart.destroy();
+            }
+            
+            // Group altitude data into continuous segments by baro_state
+            // This prevents lines from being drawn between non-consecutive points of the same state
+            const altChartDatasets = [];
+            let currentBaroState = null;
+            let currentAltSegment = null;
+            let segmentStartIndex = 0;
+            
+            chartData.forEach((row, index) => {
+                const baroState = row.baro_state || 'G';
+                const alt = altitudes[index];
+                
+                if (baroState !== currentBaroState) {
+                    // State changed - finalize previous segment and start new one
+                    if (currentAltSegment && currentAltSegment.data.length > 0) {
+                        // Align segment data with full timestamp array using nulls
+                        const alignedData = new Array(timestamps.length).fill(null);
+                        for (let i = 0; i < currentAltSegment.data.length; i++) {
+                            alignedData[segmentStartIndex + i] = currentAltSegment.data[i];
+                        }
+                        currentAltSegment.data = alignedData;
+                        altChartDatasets.push(currentAltSegment);
+                    }
+                    
+                    currentBaroState = baroState;
+                    segmentStartIndex = index;
+                    currentAltSegment = {
+                        label: baroStateNames[baroState] || baroState,
+                        data: [],
+                        borderColor: baroStateColors[baroState] || '#95a5a6',
+                        backgroundColor: baroStateColors[baroState] ? baroStateColors[baroState] + '40' : 'rgba(149, 165, 166, 0.25)',
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 0,
+                        spanGaps: false  // Don't connect across null values
+                    };
+                }
+                
+                // Add point to current segment
+                if (currentAltSegment) {
+                    currentAltSegment.data.push(alt);
+                }
+            });
+            
+            // Don't forget the last segment
+            if (currentAltSegment && currentAltSegment.data.length > 0) {
+                // Align segment data with full timestamp array using nulls
+                const alignedData = new Array(timestamps.length).fill(null);
+                for (let i = 0; i < currentAltSegment.data.length; i++) {
+                    alignedData[segmentStartIndex + i] = currentAltSegment.data[i];
+                }
+                currentAltSegment.data = alignedData;
+                altChartDatasets.push(currentAltSegment);
+            }
+            
+            altitudeChart = new Chart(altCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: altChartDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0  // Disable animation for better performance with large datasets
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    elements: {
+                        point: {
+                            radius: 0  // Hide points for better performance
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Altitude (feet)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45,
+                                maxTicksLimit: 20  // Limit number of x-axis labels
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+            
+            // Speed chart
+            const speedCtx = document.getElementById('speedChart').getContext('2d');
+            if (speedChart) {
+                speedChart.destroy();
+            }
+            
+            // Group speed data into continuous segments by gps_state
+            // This prevents lines from being drawn between non-consecutive points of the same state
+            const speedChartDatasets = [];
+            let currentGpsState = null;
+            let currentSpeedSegment = null;
+            let speedSegmentStartIndex = 0;
+            
+            chartData.forEach((row, index) => {
+                const gpsState = row.gps_state || 'U';
+                const speed = speeds[index];
+                
+                if (gpsState !== currentGpsState) {
+                    // State changed - finalize previous segment and start new one
+                    if (currentSpeedSegment && currentSpeedSegment.data.length > 0) {
+                        // Align segment data with full timestamp array using nulls
+                        const alignedData = new Array(timestamps.length).fill(null);
+                        for (let i = 0; i < currentSpeedSegment.data.length; i++) {
+                            alignedData[speedSegmentStartIndex + i] = currentSpeedSegment.data[i];
+                        }
+                        currentSpeedSegment.data = alignedData;
+                        speedChartDatasets.push(currentSpeedSegment);
+                    }
+                    
+                    currentGpsState = gpsState;
+                    speedSegmentStartIndex = index;
+                    currentSpeedSegment = {
+                        label: gpsStateNames[gpsState] || gpsState,
+                        data: [],
+                        borderColor: gpsStateColors[gpsState] || '#95a5a6',
+                        backgroundColor: gpsStateColors[gpsState] ? gpsStateColors[gpsState] + '40' : 'rgba(149, 165, 166, 0.25)',
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 0,
+                        spanGaps: false  // Don't connect across null values
+                    };
+                }
+                
+                // Add point to current segment
+                if (currentSpeedSegment) {
+                    currentSpeedSegment.data.push(speed);
+                }
+            });
+            
+            // Don't forget the last segment
+            if (currentSpeedSegment && currentSpeedSegment.data.length > 0) {
+                // Align segment data with full timestamp array using nulls
+                const alignedData = new Array(timestamps.length).fill(null);
+                for (let i = 0; i < currentSpeedSegment.data.length; i++) {
+                    alignedData[speedSegmentStartIndex + i] = currentSpeedSegment.data[i];
+                }
+                currentSpeedSegment.data = alignedData;
+                speedChartDatasets.push(currentSpeedSegment);
+            }
+            
+            speedChart = new Chart(speedCtx, {
+                type: 'line',
+                data: {
+                    labels: timestamps,
+                    datasets: speedChartDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0  // Disable animation for better performance with large datasets
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    elements: {
+                        point: {
+                            radius: 0  // Hide points for better performance
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Speed (knots)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45,
+                                maxTicksLimit: 20  // Limit number of x-axis labels
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            // Limit table rows for performance
+            let displayData = filteredData;
+            const originalCount = displayData.length;
+            let showMoreButton = false;
+            
+            if (displayData.length > MAX_TABLE_ROWS) {
+                displayData = displayData.slice(0, MAX_TABLE_ROWS);
+                showMoreButton = true;
+            }
+            
+            displayData.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.timestamp}</td>
+                    <td>${baroStateNames[row.baro_state] || row.baro_state}</td>
+                    <td>${gpsStateNames[row.gps_state] || row.gps_state}</td>
+                    <td>${parseFloat(row.latitude).toFixed(6)}</td>
+                    <td>${parseFloat(row.longitude).toFixed(6)}</td>
+                    <td>${parseFloat(row.speed_kts).toFixed(1)}</td>
+                    <td>${(parseFloat(row.altitude_m) * 3.28084).toFixed(0)}</td>
+                    <td>${parseFloat(row.temperature_c).toFixed(1)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            // Add message if data was truncated
+            if (showMoreButton) {
+                const tr = document.createElement('tr');
+                tr.className = 'info-row';
+                tr.innerHTML = `
+                    <td colspan="8" style="text-align: center; padding: 20px; background: #ecf0f1; color: #7f8c8d;">
+                        Showing ${MAX_TABLE_ROWS.toLocaleString()} of ${originalCount.toLocaleString()} rows. 
+                        Use filters to narrow down the data.
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+        
+        function filterTable() {
+            const filter = document.getElementById('stateFilter').value;
+            if (filter === 'all') {
+                filteredData = flightData;
+            } else {
+                filteredData = flightData.filter(row => row.gps_state === filter);
+            }
+            updateVisualizations();
+        }
+        
+        function sortTable(column) {
+            if (currentSortColumn === column) {
+                sortDirection *= -1;
+            } else {
+                currentSortColumn = column;
+                sortDirection = 1;
+            }
+            
+            filteredData.sort((a, b) => {
+                let aVal, bVal;
+                switch(column) {
+                    case 0: // timestamp
+                        aVal = new Date(a.timestamp);
+                        bVal = new Date(b.timestamp);
+                        break;
+                    case 1: // baro_state
+                        aVal = a.baro_state;
+                        bVal = b.baro_state;
+                        break;
+                    case 2: // gps_state
+                        aVal = a.gps_state;
+                        bVal = b.gps_state;
+                        break;
+                    case 3: // latitude
+                        aVal = parseFloat(a.latitude) || 0;
+                        bVal = parseFloat(b.latitude) || 0;
+                        break;
+                    case 4: // longitude
+                        aVal = parseFloat(a.longitude) || 0;
+                        bVal = parseFloat(b.longitude) || 0;
+                        break;
+                    case 5: // speed
+                        aVal = parseFloat(a.speed_kts) || 0;
+                        bVal = parseFloat(b.speed_kts) || 0;
+                        break;
+                    case 6: // altitude
+                        aVal = parseFloat(a.altitude_m) || 0;
+                        bVal = parseFloat(b.altitude_m) || 0;
+                        break;
+                    case 7: // temperature
+                        aVal = parseFloat(a.temperature_c) || 0;
+                        bVal = parseFloat(b.temperature_c) || 0;
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                if (aVal < bVal) return -1 * sortDirection;
+                if (aVal > bVal) return 1 * sortDirection;
+                return 0;
+            });
+            
+            updateTable();
+        }
+        
+        function updateVisualizations() {
+            if (flightData.length === 0) {
+                return;
+            }
+            
+            calculateStats();
+            updateMap();
+            updateCharts();
+            updateTable();
+        }
+        
+        // Allow Enter key to load file
+        document.getElementById('csvFile').addEventListener('change', function() {
+            if (this.files.length > 0) {
+                loadCSV();
+            }
+        });
+    </script>
+</body>
+</html>
+

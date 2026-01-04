@@ -11,7 +11,12 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/sys_heap.h>
+#include <zephyr/sys/mem_stats.h>
 #include <stdio.h>
+
+/* External system heap for memory stats */
+extern struct sys_heap _system_heap;
 
 LOG_MODULE_REGISTER(flight_timer, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -217,8 +222,51 @@ void flight_timer_process_baro(float pressure_pa, float temperature_c)
 			samples_per_sec = (float)total_samples_collected * 1000.0f / (float)status_period_ms;
 		}
 		
+		/* Collect device status (memory and CPU) */
+		char mem_info[64] = "N/A";
+		char cpu_info[32] = "N/A";
+		
+		#ifdef CONFIG_SYS_HEAP_RUNTIME_STATS
+		struct sys_memory_stats mem_stats;
+		if (sys_heap_runtime_stats_get(&_system_heap, &mem_stats) == 0) {
+			size_t total_mem = mem_stats.free_bytes + mem_stats.allocated_bytes;
+			float mem_used_pct = total_mem > 0 ? 
+				(100.0f * (float)mem_stats.allocated_bytes / (float)total_mem) : 0.0f;
+			snprintf(mem_info, sizeof(mem_info), "used=%lu/%lu (%.1f%%)",
+				(unsigned long)mem_stats.allocated_bytes, 
+				(unsigned long)total_mem, 
+				(double)mem_used_pct);
+		}
+		#endif
+		
+		#ifdef CONFIG_SCHED_THREAD_USAGE_ALL
+		k_thread_runtime_stats_t cpu_stats;
+		int cpu_ret = k_thread_runtime_stats_all_get(&cpu_stats);
+		if (cpu_ret == 0) {
+			float cpu_util = 0.0f;
+			/* execution_cycles = total_cycles + idle_cycles for CPU stats */
+			/* CPU utilization = (non-idle / total) * 100 */
+			if (cpu_stats.execution_cycles > 0) {
+				cpu_util = 100.0f * (float)cpu_stats.total_cycles / 
+					(float)cpu_stats.execution_cycles;
+				/* Clamp to valid range */
+				if (cpu_util > 100.0f) {
+					cpu_util = 100.0f;
+				}
+				if (cpu_util < 0.0f) {
+					cpu_util = 0.0f;
+				}
+			}
+			snprintf(cpu_info, sizeof(cpu_info), "%.1f%%", (double)cpu_util);
+		} else {
+			/* Stats not available yet or error */
+			snprintf(cpu_info, sizeof(cpu_info), "err:%d", cpu_ret);
+		}
+		#endif
+		
 		LOG_INF("STATUS: uuid=%s, start=%lld, elapsed=%lld, gps_state=%s, baro_state=%s, "
-			"lat=%.6f, lon=%.6f, alt=%.1f, pressure=%.1f Pa, temp=%.1f C, samples/sec=%.2f",
+			"lat=%.6f, lon=%.6f, alt=%.1f, pressure=%.1f Pa, temp=%.1f C, samples/sec=%.2f, "
+			"mem=%s, cpu=%s",
 			session->uuid,
 			session->start_time_ms,
 			elapsed,
@@ -229,7 +277,9 @@ void flight_timer_process_baro(float pressure_pa, float temperature_c)
 			(double)baro_data->altitude_ft,
 			(double)baro_data->pressure_pa,
 			(double)baro_data->temperature_c,
-			(double)samples_per_sec);
+			(double)samples_per_sec,
+			mem_info,
+			cpu_info);
 		
 		/* Reset counters for next status period */
 		total_samples_collected = 0;

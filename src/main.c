@@ -12,11 +12,17 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/drivers/sensor/bmp581_user.h>
+#include <zephyr/sys/sys_heap.h>
+#include <zephyr/sys/mem_stats.h>
+
+/* External system heap for memory stats */
+extern struct sys_heap _system_heap;
 
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_gnss.h>
 #include <modem/lte_lc.h>
 #include <time.h>
+#include <stdio.h>
 
 #include "rtc_sync.h"
 #include "supl_assist.h"
@@ -531,6 +537,11 @@ int main(void)
 	}
 
 	LOG_INF("Initialization complete, entering main loop");
+	
+	/* Enable system runtime statistics for CPU monitoring */
+	#ifdef CONFIG_SCHED_THREAD_USAGE_ALL
+	k_sys_runtime_stats_enable();
+	#endif
 
 	/* Main loop timing */
 	int64_t last_baro_time = 0;
@@ -591,9 +602,51 @@ int main(void)
 				snprintf(time_str, sizeof(time_str), "unknown");
 			}
 			
+			/* Collect device status (memory and CPU) */
+			char mem_info[64] = "N/A";
+			char cpu_info[32] = "N/A";
+			
+			#ifdef CONFIG_SYS_HEAP_RUNTIME_STATS
+			struct sys_memory_stats mem_stats;
+			if (sys_heap_runtime_stats_get(&_system_heap, &mem_stats) == 0) {
+				size_t total_mem = mem_stats.free_bytes + mem_stats.allocated_bytes;
+				float mem_used_pct = total_mem > 0 ? 
+					(100.0f * (float)mem_stats.allocated_bytes / (float)total_mem) : 0.0f;
+				snprintf(mem_info, sizeof(mem_info), "used=%lu/%lu (%.1f%%)",
+					(unsigned long)mem_stats.allocated_bytes, 
+					(unsigned long)total_mem, 
+					(double)mem_used_pct);
+			}
+			#endif
+			
+			#ifdef CONFIG_SCHED_THREAD_USAGE_ALL
+			k_thread_runtime_stats_t cpu_stats;
+			int cpu_ret = k_thread_runtime_stats_all_get(&cpu_stats);
+			if (cpu_ret == 0) {
+				float cpu_util = 0.0f;
+				/* execution_cycles = total_cycles + idle_cycles for CPU stats */
+				/* CPU utilization = (non-idle / total) * 100 */
+				if (cpu_stats.execution_cycles > 0) {
+					cpu_util = 100.0f * (float)cpu_stats.total_cycles / 
+						(float)cpu_stats.execution_cycles;
+					/* Clamp to valid range */
+					if (cpu_util > 100.0f) {
+						cpu_util = 100.0f;
+					}
+					if (cpu_util < 0.0f) {
+						cpu_util = 0.0f;
+					}
+				}
+				snprintf(cpu_info, sizeof(cpu_info), "%.1f%%", (double)cpu_util);
+			} else {
+				/* Stats not available yet or error */
+				snprintf(cpu_info, sizeof(cpu_info), "err:%d", cpu_ret);
+			}
+			#endif
+			
 			LOG_INF("STATUS: time=%s, gps_state=%s, baro_state=%s, "
 				"lat=%.6f, lon=%.6f, speed=%.1f kts, "
-				"pressure=%.1f Pa, temp=%.1f C",
+				"pressure=%.1f Pa, temp=%.1f C, mem=%s, cpu=%s",
 				time_str,
 				gps_state_name(gps_state_get()),
 				baro_state_name(baro_state_get()),
@@ -601,7 +654,9 @@ int main(void)
 				gps_data->longitude,
 				(double)gps_data->speed_kts,
 				(double)baro_data->pressure_pa,
-				(double)baro_data->temperature_c);
+				(double)baro_data->temperature_c,
+				mem_info,
+				cpu_info);
 			
 			last_status_time = now;
 		}

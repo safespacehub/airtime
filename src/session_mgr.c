@@ -4,62 +4,19 @@
  */
 
 #include "session_mgr.h"
-#include "sd_logger.h"
 #include "rtc_sync.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/random/random.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/logging/log_backend.h>
-#include <zephyr/sys/iterable_sections.h>
 #include <stdio.h>
 #include <string.h>
 
 LOG_MODULE_REGISTER(session_mgr, CONFIG_LOG_DEFAULT_LEVEL);
 
-#define ACTIVE_JSON_FILE    "active.json"
-
 static struct session_data session;
 static bool session_active = false;
 static int64_t session_uptime_start = 0;  /* Uptime at session start */
-
-/* Static buffer for JSON serialization */
-static char session_json_buf[1024];
-
-/* Helper to find and get the FS logging backend */
-static const struct log_backend *get_fs_backend(void)
-{
-	STRUCT_SECTION_FOREACH(log_backend, backend) {
-		if (backend->name != NULL && strcmp(backend->name, "fs") == 0) {
-			return backend;
-		}
-	}
-	return NULL;
-}
-
-/* Helper to safely perform SD card operations by deactivating FS backend */
-static void *fs_backend_ctx = NULL;
-
-static void deactivate_fs_backend(void)
-{
-	const struct log_backend *fs_backend = get_fs_backend();
-	if (fs_backend != NULL) {
-		/* Store context before deactivating */
-		fs_backend_ctx = fs_backend->cb->ctx;
-		log_backend_deactivate(fs_backend);
-		/* Wait 50ms for any pending log operations to complete */
-		k_msleep(50);
-	}
-}
-
-static void activate_fs_backend(void)
-{
-	const struct log_backend *fs_backend = get_fs_backend();
-	if (fs_backend != NULL && fs_backend_ctx != NULL) {
-		log_backend_activate(fs_backend, fs_backend_ctx);
-		fs_backend_ctx = NULL;
-	}
-}
 
 void session_mgr_generate_uuid(char *buf)
 {
@@ -80,95 +37,11 @@ void session_mgr_generate_uuid(char *buf)
 		 uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
 }
 
-static int parse_uuid_from_json(const char *json, char *uuid_out)
-{
-	/* Simple JSON parser - find "uuid": "..." (handles whitespace) */
-	const char *uuid_key = "\"uuid\"";
-	const char *ptr = strstr(json, uuid_key);
-	if (ptr == NULL) {
-		return -EINVAL;
-	}
-	
-	/* Skip past "uuid" */
-	ptr += strlen(uuid_key);
-	
-	/* Skip whitespace and colon */
-	while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r') {
-		ptr++;
-	}
-	if (*ptr != ':') {
-		return -EINVAL;
-	}
-	ptr++; /* Skip colon */
-	
-	/* Skip whitespace after colon */
-	while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r') {
-		ptr++;
-	}
-	
-	/* Expect opening quote */
-	if (*ptr != '"') {
-		return -EINVAL;
-	}
-	ptr++; /* Skip opening quote */
-	
-	/* Copy until closing quote */
-	int i = 0;
-	while (*ptr != '"' && *ptr != '\0' && i < UUID_STRING_LEN - 1) {
-		uuid_out[i++] = *ptr++;
-	}
-	if (*ptr != '"') {
-		return -EINVAL; /* Didn't find closing quote */
-	}
-	uuid_out[i] = '\0';
-	
-	return 0;
-}
-
 static int rotate_existing_session(void)
 {
-	if (!sd_logger_file_exists(ACTIVE_JSON_FILE)) {
-		LOG_INF("No existing session to rotate");
-		return 0;
-	}
-
-	/* Deactivate FS backend before SD card operations */
-	deactivate_fs_backend();
-
-	/* Read existing active.json to get UUID */
-	char json_buf[256];
-	int bytes_read = sd_logger_read_file(ACTIVE_JSON_FILE, json_buf, sizeof(json_buf) - 1);
-	if (bytes_read <= 0) {
-		LOG_WRN("Failed to read existing active.json, deleting");
-		/* Can't read, just continue with new session */
-		activate_fs_backend();
-		return 0;
-	}
-	json_buf[bytes_read] = '\0';
-
-	/* Parse UUID from JSON */
-	char old_uuid[UUID_STRING_LEN];
-	int ret = parse_uuid_from_json(json_buf, old_uuid);
-	if (ret != 0) {
-		LOG_WRN("Failed to parse UUID from active.json");
-		activate_fs_backend();
-		return 0;
-	}
-
-	LOG_INF("Rotating previous session: %s", old_uuid);
-
-	/* Rename files with UUID prefix */
-	char new_name[64];
-	
-	snprintf(new_name, sizeof(new_name), "%s.json", old_uuid);
-	ret = sd_logger_rename(ACTIVE_JSON_FILE, new_name);
-
-	/* Reactivate FS backend after SD card operations */
-	activate_fs_backend();
-
-	/* CSV data is now in log files via LOG_BACKEND_FS - no separate file to rename */
-
-	return ret;
+	/* Session rotation disabled - logging backend handles all file management */
+	LOG_INF("Session rotation skipped (logging backend handles files)");
+	return 0;
 }
 
 int session_mgr_init(void)
@@ -205,14 +78,7 @@ int session_mgr_start_session(void)
 	session.samples_logged = 0;
 
 	/* CSV logging now handled via LOG_BACKEND_FS - no file to open */
-
-	/* Save initial session state */
-	LOG_INF("Creating active.json...");
-	ret = session_mgr_save();
-	if (ret != 0) {
-		LOG_ERR("Failed to save initial session: %d", ret);
-		return ret;
-	}
+	/* Session data is tracked in memory only - no SD card writes */
 
 	session_active = true;
 	LOG_INF("New session started: %s", session.uuid);
@@ -243,99 +109,8 @@ void session_mgr_update(gps_state_t gps_state,
 
 int session_mgr_save(void)
 {
-	if (!sd_logger_is_mounted()) {
-		return -ENODEV;
-	}
-
-	/* Ensure UUID is initialized */
-	if (session.uuid[0] == '\0') {
-		LOG_ERR("Session UUID not initialized");
-		return -EINVAL;
-	}
-
-	/* Get state names safely */
-	const char *gps_state_str = gps_state_name(session.gps_state);
-	const char *baro_state_str = baro_state_name(session.baro_state);
-	
-	if (gps_state_str == NULL) {
-		gps_state_str = "unknown";
-	}
-	if (baro_state_str == NULL) {
-		baro_state_str = "unknown";
-	}
-	
-	/* Convert floats to integers to avoid floating-point printf issues */
-	/* Use safe defaults - GPS values start at 0.0 and are only set when valid */
-	int32_t lat_int = 0;
-	int32_t lon_int = 0;
-	int32_t alt_int = 0;
-	
-	/* Only convert if we have valid GPS data (non-zero coordinates) */
-	/* Note: 0,0 is technically valid (Gulf of Guinea) but unlikely for flight tracking */
-	if (session.last_lat != 0.0 && session.last_lon != 0.0) {
-		/* Clamp to reasonable bounds to avoid overflow/underflow */
-		if (session.last_lat >= -90.0 && session.last_lat <= 90.0 &&
-		    session.last_lon >= -180.0 && session.last_lon <= 180.0) {
-			lat_int = (int32_t)(session.last_lat * 1000000);
-			lon_int = (int32_t)(session.last_lon * 1000000);
-		}
-	}
-	
-	/* Only convert altitude if non-zero and reasonable */
-	if (session.last_altitude_ft != 0.0f &&
-	    session.last_altitude_ft >= -1000.0f && session.last_altitude_ft <= 100000.0f) {
-		alt_int = (int32_t)(session.last_altitude_ft * 10);
-	}
-	
-	/* Convert 64-bit integers to 32-bit for printf (timestamps should fit) */
-	uint32_t start_ms = (uint32_t)session.start_time_ms;
-	uint32_t elapsed_ms = (uint32_t)session.elapsed_ms;
-	
-	/* Build JSON with pretty formatting, using 32-bit integers only */
-	int len = snprintf(session_json_buf, sizeof(session_json_buf),
-		"{\n"
-		"  \"uuid\": \"%s\",\n"
-		"  \"start_time_ms\": %u,\n"
-		"  \"elapsed_ms\": %u,\n"
-		"  \"gps_state\": \"%s\",\n"
-		"  \"baro_state\": \"%s\",\n"
-		"  \"last_lat\": %.6f,\n"
-		"  \"last_lon\": %.6f,\n"
-		"  \"last_altitude_ft\": %.1f,\n"
-		"  \"samples_logged\": %u\n"
-		"}\n",
-		session.uuid,
-		start_ms,
-		elapsed_ms,
-		gps_state_str,
-		baro_state_str,
-		(double)lat_int / 1000000.0,
-		(double)lon_int / 1000000.0,
-		(double)alt_int / 10.0,
-		session.samples_logged);
-
-	if (len <= 0 || len >= (int)sizeof(session_json_buf)) {
-		LOG_ERR("JSON serialization failed: len=%d", len);
-		return -ENOMEM;
-	}
-
-	session_json_buf[len] = '\0';
-
-	/* Deactivate FS backend before SD card operation to avoid concurrent access */
-	deactivate_fs_backend();
-
-	LOG_INF("Writing active.json (%d bytes)...", len);
-	int ret = sd_logger_write_file(ACTIVE_JSON_FILE, session_json_buf, len);
-	if (ret != 0) {
-		LOG_ERR("Failed to write session file: %d", ret);
-		activate_fs_backend();
-		return ret;
-	}
-	LOG_INF("active.json written successfully");
-
-	/* Reactivate FS backend after SD card operation */
-	activate_fs_backend();
-
+	/* Session data is tracked in memory only - no SD card writes */
+	/* All data is logged via LOG_BACKEND_FS in the CSV and STATUS messages */
 	return 0;
 }
 

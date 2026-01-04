@@ -11,14 +11,14 @@
 LOG_MODULE_REGISTER(gps_state, CONFIG_LOG_DEFAULT_LEVEL);
 
 /* Speed thresholds in knots */
-#define SPEED_STOPPED_MAX_KTS      2.0f
-#define SPEED_TAXI_MIN_KTS         2.0f
+#define SPEED_STOPPED_MAX_KTS      5.0f
+#define SPEED_TAXI_MIN_KTS         5.0f
 #define SPEED_TAXI_MAX_KTS         50.0f
 #define SPEED_FLIGHT_MIN_KTS       50.0f
 
 /* Hysteresis thresholds */
-#define HYST_STOPPED_TO_TAXI_KTS   3.0f   /* Must exceed 3 kts to enter taxi */
-#define HYST_TAXI_TO_STOPPED_KTS   1.5f   /* Must drop below 1.5 kts to stop */
+#define HYST_STOPPED_TO_TAXI_KTS   8.0f   /* Must exceed 8 kts to enter taxi */
+#define HYST_TAXI_TO_STOPPED_KTS   4.0f   /* Must drop below 4.0 kts to stop */
 #define HYST_TAXI_TO_FLIGHT_KTS    55.0f  /* Must exceed 55 kts to enter flight */
 #define HYST_FLIGHT_TO_TAXI_KTS    45.0f  /* Must drop below 45 kts to exit flight */
 
