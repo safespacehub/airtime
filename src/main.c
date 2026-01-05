@@ -14,6 +14,7 @@
 #include <zephyr/drivers/sensor/bmp581_user.h>
 #include <zephyr/sys/sys_heap.h>
 #include <zephyr/sys/mem_stats.h>
+#include <modem/nrf_modem_lib.h>
 
 /* External system heap for memory stats */
 extern struct sys_heap _system_heap;
@@ -603,20 +604,62 @@ int main(void)
 			}
 			
 			/* Collect device status (memory and CPU) */
-			char mem_info[64] = "N/A";
+			char mem_info[128] = "N/A";
 			char cpu_info[32] = "N/A";
 			
 			#ifdef CONFIG_SYS_HEAP_RUNTIME_STATS
-			struct sys_memory_stats mem_stats;
-			if (sys_heap_runtime_stats_get(&_system_heap, &mem_stats) == 0) {
-				size_t total_mem = mem_stats.free_bytes + mem_stats.allocated_bytes;
-				float mem_used_pct = total_mem > 0 ? 
-					(100.0f * (float)mem_stats.allocated_bytes / (float)total_mem) : 0.0f;
-				snprintf(mem_info, sizeof(mem_info), "used=%lu/%lu (%.1f%%)",
-					(unsigned long)mem_stats.allocated_bytes, 
+			struct sys_memory_stats sys_mem_stats;
+			size_t sys_total = 0;
+			size_t sys_used = 0;
+			
+			if (sys_heap_runtime_stats_get(&_system_heap, &sys_mem_stats) == 0) {
+				sys_total = sys_mem_stats.free_bytes + sys_mem_stats.allocated_bytes;
+				sys_used = sys_mem_stats.allocated_bytes;
+			}
+			
+			/* Also get modem library heap stats if available */
+			#if defined(CONFIG_NRF_MODEM_LIB) && defined(CONFIG_NRF_MODEM_LIB_MEM_DIAG)
+			struct nrf_modem_lib_diag_stats modem_stats;
+			size_t modem_total = 0;
+			size_t modem_used = 0;
+			
+			if (nrf_modem_is_initialized() && 
+			    nrf_modem_lib_diag_stats_get(&modem_stats) == 0) {
+				modem_total = modem_stats.library.heap.free_bytes + 
+				              modem_stats.library.heap.allocated_bytes;
+				modem_used = modem_stats.library.heap.allocated_bytes;
+			}
+			
+			/* Combine system and modem heap stats */
+			size_t total_mem = sys_total + modem_total;
+			size_t used_mem = sys_used + modem_used;
+			float mem_used_pct = total_mem > 0 ? 
+				(100.0f * (float)used_mem / (float)total_mem) : 0.0f;
+			
+			if (modem_total > 0) {
+				/* Show combined stats: sys+modem */
+				snprintf(mem_info, sizeof(mem_info), "heap=%lu/%lu (%.1f%%, sys:%lu+modem:%lu)",
+					(unsigned long)used_mem, 
 					(unsigned long)total_mem, 
+					(double)mem_used_pct,
+					(unsigned long)sys_used,
+					(unsigned long)modem_used);
+			} else {
+				/* Only system heap available */
+				snprintf(mem_info, sizeof(mem_info), "heap=%lu/%lu (%.1f%%)",
+					(unsigned long)sys_used, 
+					(unsigned long)sys_total, 
 					(double)mem_used_pct);
 			}
+			#else
+			/* Only system heap, no modem */
+			float mem_used_pct = sys_total > 0 ? 
+				(100.0f * (float)sys_used / (float)sys_total) : 0.0f;
+			snprintf(mem_info, sizeof(mem_info), "heap=%lu/%lu (%.1f%%)",
+				(unsigned long)sys_used, 
+				(unsigned long)sys_total, 
+				(double)mem_used_pct);
+			#endif
 			#endif
 			
 			#ifdef CONFIG_SCHED_THREAD_USAGE_ALL

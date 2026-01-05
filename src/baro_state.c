@@ -38,6 +38,7 @@ struct altitude_sample {
 static struct altitude_sample sample_buffer[BUFFER_SIZE];
 static uint16_t buffer_head = 0;
 static uint16_t buffer_count = 0;
+static bool buffer_filled_logged = false;  /* Track if we've logged buffer fill */
 
 static struct baro_state_data state_data;
 
@@ -57,6 +58,11 @@ static void add_sample(float altitude_ft, int64_t timestamp_ms)
 	buffer_head = (buffer_head + 1) % BUFFER_SIZE;
 	if (buffer_count < BUFFER_SIZE) {
 		buffer_count++;
+		/* Log when 20-second sliding window is first filled */
+		if (buffer_count == BUFFER_SIZE && !buffer_filled_logged) {
+			LOG_INF("Baro 20-second sliding window filled and ready (%u samples)", buffer_count);
+			buffer_filled_logged = true;
+		}
 	}
 }
 
@@ -121,6 +127,7 @@ int baro_state_init(void)
 	
 	buffer_head = 0;
 	buffer_count = 0;
+	buffer_filled_logged = false;
 	
 	state_data.state = BARO_STATE_GROUND;
 	state_data.prev_state = BARO_STATE_GROUND;

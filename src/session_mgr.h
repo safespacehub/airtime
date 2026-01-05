@@ -10,22 +10,28 @@
 #include <stdbool.h>
 #include "gps_state.h"
 #include "baro_state.h"
+#include "flight_timer.h"
 
 #define UUID_STRING_LEN 37  /* 36 chars + null terminator */
+#define MAX_STATE_CHANGES 200  /* Maximum state changes to store (matches flight_timer buffer) */
+
+/* Forward declaration - defined in flight_timer.h */
+struct state_change_entry;
 
 /**
  * @brief Session data structure
+ * Stores only: uuid, start/stop lat/long, timestamps, and state changes
  */
 struct session_data {
 	char uuid[UUID_STRING_LEN];
-	int64_t start_time_ms;
-	int64_t elapsed_ms;
-	gps_state_t gps_state;
-	baro_state_t baro_state;
-	double last_lat;
-	double last_lon;
-	float last_altitude_ft;
-	uint32_t samples_logged;
+	int64_t start_time_ms;  /* Session start timestamp */
+	int64_t stop_time_ms;   /* Most recent update timestamp */
+	double start_lat;
+	double start_lon;
+	double stop_lat;
+	double stop_lon;
+	struct state_change_entry state_changes[MAX_STATE_CHANGES];
+	uint16_t state_change_count;
 };
 
 /**
@@ -42,26 +48,27 @@ int session_mgr_init(void);
 int session_mgr_start_session(void);
 
 /**
- * @brief Update session with current data
- * @param gps_state Current GPS state
- * @param baro_state Current barometer state
- * @param lat Current latitude
- * @param lon Current longitude
- * @param altitude_ft Current altitude
- * @param samples Number of samples logged
+ * @brief Set session start position (called once at session start)
+ * @param lat Start latitude
+ * @param lon Start longitude
+ * @return true if start position was set (first time), false if already set
  */
-void session_mgr_update(gps_state_t gps_state,
-			baro_state_t baro_state,
-			double lat,
-			double lon,
-			float altitude_ft,
-			uint32_t samples);
+bool session_mgr_set_start_position(double lat, double lon);
 
 /**
- * @brief Save session to active.json
+ * @brief Update session stop position (most recent position)
+ * @param lat Current latitude
+ * @param lon Current longitude
+ */
+void session_mgr_update_position(double lat, double lon);
+
+/**
+ * @brief Save session to session.json
+ * @param state_changes Array of state changes from flight timer
+ * @param state_change_count Number of state changes
  * @return 0 on success, negative errno on failure
  */
-int session_mgr_save(void);
+int session_mgr_save(const struct state_change_entry *state_changes, uint16_t state_change_count);
 
 /**
  * @brief Get current session UUID

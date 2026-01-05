@@ -15,10 +15,17 @@
  * @brief Combined flight state
  */
 typedef enum {
-	FLIGHT_STATUS_GROUND = 0,   /* Both GPS and baro indicate ground */
-	FLIGHT_STATUS_TAXIING,      /* GPS indicates taxi, baro ground */
-	FLIGHT_STATUS_AIRBORNE,     /* Either GPS or baro indicates flight */
+	FLIGHT_STATUS_GROUND = 0,   /* On ground */
+	FLIGHT_STATUS_AIRBORNE,     /* Flying */
 } flight_status_t;
+
+/**
+ * @brief State change entry for session tracking
+ */
+struct state_change_entry {
+	flight_status_t status;  /* FLIGHT_STATUS_GROUND or FLIGHT_STATUS_AIRBORNE */
+	int64_t timestamp_ms;   /* Timestamp in milliseconds */
+};
 
 /**
  * @brief Flight timer data
@@ -97,6 +104,14 @@ bool flight_timer_needs_save(void);
  * @return 0 on success, negative errno on failure
  */
 int flight_timer_save(void);
+
+/**
+ * @brief Get status change buffer for session saving
+ * @param buffer Output buffer for status changes
+ * @param max_count Maximum number of entries to copy
+ * @return Number of status changes copied
+ */
+uint16_t flight_timer_get_status_changes(struct state_change_entry *buffer, uint16_t max_count);
 
 #endif /* FLIGHT_TIMER_H */
 
