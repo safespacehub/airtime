@@ -13,6 +13,7 @@ target_sources(app PRIVATE
     src/sd_logger.c
     src/session_mgr.c
     src/flight_timer.c
+    src/session_upload.c
 )
 
 target_include_directories(app PRIVATE src)

@@ -12,6 +12,7 @@
 #include <zephyr/storage/disk_access.h>
 #include <zephyr/fs/fs.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <ff.h>
 #include <stdio.h>
 #include <string.h>
@@ -116,6 +117,18 @@ int sd_logger_mount(void)
 
 	mounted = true;
 	LOG_INF("SD card mounted successfully");
+
+	/* Print hardware ID */
+	uint8_t device_id[8];
+	ssize_t id_ret = hwinfo_get_device_id(device_id, sizeof(device_id));
+	if (id_ret == sizeof(device_id)) {
+		LOG_INF("Hardware ID: %02X%02X%02X%02X%02X%02X%02X%02X",
+			device_id[0], device_id[1], device_id[2], device_id[3],
+			device_id[4], device_id[5], device_id[6], device_id[7]);
+	} else {
+		LOG_WRN("Failed to get hardware ID: %zd", id_ret);
+	}
+
 	return 0;
 }
 

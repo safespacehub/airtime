@@ -184,6 +184,9 @@
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/utils/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/sockets/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/sockets/CMakeFiles/rebuild_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/http/CMakeFiles/subsys__net__lib__http.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/http/CMakeFiles/edit_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/subsys/net/lib/http/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/disk/CMakeFiles/drivers__disk.dir
@@ -220,6 +223,9 @@
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/gpio/CMakeFiles/drivers__gpio.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/gpio/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/gpio/CMakeFiles/rebuild_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/hwinfo/CMakeFiles/drivers__hwinfo.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/hwinfo/CMakeFiles/edit_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/hwinfo/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/i2c/CMakeFiles/drivers__i2c.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/i2c/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/i2c/CMakeFiles/rebuild_cache.dir
@@ -361,6 +367,9 @@
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/supl/CMakeFiles/..__nrf__lib__supl.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/supl/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/supl/CMakeFiles/rebuild_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/hw_id/CMakeFiles/..__nrf__lib__hw_id.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/hw_id/CMakeFiles/edit_cache.dir
+/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/hw_id/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/boot_banner/CMakeFiles/edit_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/boot_banner/CMakeFiles/rebuild_cache.dir
 /home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/samples/CMakeFiles/edit_cache.dir

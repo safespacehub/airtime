@@ -25,10 +25,15 @@ LOG_MODULE_REGISTER(gps_state, CONFIG_LOG_DEFAULT_LEVEL);
 /* Stale threshold in milliseconds */
 #define STALE_THRESHOLD_MS         20000
 
+/* Minimum number of valid fixes required before allowing state transitions */
+/* Prevents false state changes from inaccurate initial GPS fixes */
+#define MIN_FIXES_FOR_STATE_CHANGE 5
+
 /* Conversion factor: m/s to knots */
 #define MPS_TO_KTS                 1.94384f
 
 static struct gps_state_data state_data;
+static uint32_t valid_fix_count = 0;  /* Count of valid fixes received */
 
 int gps_state_init(void)
 {
@@ -38,6 +43,7 @@ int gps_state_init(void)
 	state_data.last_fix_time_ms = 0;
 	state_data.state_enter_time_ms = k_uptime_get();
 	state_data.has_fix = false;
+	valid_fix_count = 0;
 
 	LOG_INF("GPS state machine initialized");
 	return 0;
@@ -108,8 +114,23 @@ bool gps_state_update(const struct nrf_modem_gnss_pvt_data_frame *pvt)
 		state_data.speed_mps = pvt->speed;
 		state_data.speed_kts = pvt->speed * MPS_TO_KTS;
 
-		/* Calculate new state based on speed */
-		new_state = calculate_new_state(state_data.speed_kts, state_data.state);
+		/* Increment valid fix counter */
+		valid_fix_count++;
+
+		/* Prevent state transitions from UNKNOWN until we have enough fixes */
+		/* This prevents false state changes from inaccurate initial GPS readings */
+		if (state_data.state == GPS_STATE_UNKNOWN) {
+			if (valid_fix_count < MIN_FIXES_FOR_STATE_CHANGE) {
+				/* Not enough fixes yet - stay in UNKNOWN */
+				new_state = GPS_STATE_UNKNOWN;
+			} else {
+				/* Enough fixes collected - allow state transition */
+				new_state = calculate_new_state(state_data.speed_kts, state_data.state);
+			}
+		} else {
+			/* Already have a valid state - allow transitions */
+			new_state = calculate_new_state(state_data.speed_kts, state_data.state);
+		}
 	} else {
 		/* No valid fix - check if data is stale */
 		if (state_data.state != GPS_STATE_UNKNOWN) {
@@ -117,12 +138,16 @@ bool gps_state_update(const struct nrf_modem_gnss_pvt_data_frame *pvt)
 			if (age > STALE_THRESHOLD_MS || state_data.last_fix_time_ms == 0) {
 				new_state = GPS_STATE_UNKNOWN;
 				state_data.has_fix = false;
+				/* Reset fix counter when going stale */
+				valid_fix_count = 0;
 			} else {
 				/* Keep current state, data not stale yet */
 				new_state = state_data.state;
 			}
 		} else {
 			new_state = GPS_STATE_UNKNOWN;
+			/* Reset fix counter if we're in UNKNOWN and have no fix */
+			valid_fix_count = 0;
 		}
 	}
 

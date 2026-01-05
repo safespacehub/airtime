@@ -32,6 +32,7 @@ extern struct sys_heap _system_heap;
 #include "sd_logger.h"
 #include "session_mgr.h"
 #include "flight_timer.h"
+#include "session_upload.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -500,6 +501,12 @@ int main(void)
 	baro_state_init();
 	flight_timer_init();
 
+	/* Initialize session upload module */
+	err = session_upload_init();
+	if (err) {
+		LOG_WRN("Session upload init failed: %d (continuing without uploads)", err);
+	}
+
 	/* Initialize modem and LTE */
 	err = init_modem();
 	if (err) {
@@ -706,6 +713,9 @@ int main(void)
 
 		/* Periodic session save */
 		flight_timer_periodic_update();
+
+		/* Periodic session upload */
+		session_upload_periodic_update();
 
 		/* Sleep until next iteration */
 		k_msleep(MAIN_LOOP_INTERVAL_MS);

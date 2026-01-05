@@ -79,6 +79,11 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
+  include("/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/hw_id/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
   include("/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/modules/nrf/lib/boot_banner/cmake_install.cmake")
 endif()
 

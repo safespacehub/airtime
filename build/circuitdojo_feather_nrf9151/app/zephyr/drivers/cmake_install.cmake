@@ -94,6 +94,11 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
+  include("/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/hwinfo/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
   include("/home/turbo/airtime2/app/build/circuitdojo_feather_nrf9151/app/zephyr/drivers/i2c/cmake_install.cmake")
 endif()
 

@@ -8,6 +8,7 @@
 #include "baro_state.h"
 #include "session_mgr.h"
 #include "rtc_sync.h"
+#include "session_upload.h"
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -65,8 +66,12 @@ static void update_flight_status(void)
 	int64_t now = k_uptime_get();
 
 	/* Prevent state changes until baro buffer has collected enough samples */
+	/* Always start in GROUND and stay there until sensors are ready */
 	if (total_baro_samples_collected < MIN_BARO_SAMPLES_FOR_STATE_CHANGE) {
-		/* Buffer still filling up - don't allow state changes yet */
+		/* Buffer still filling up - ensure we stay in GROUND state */
+		if (old_status != FLIGHT_STATUS_GROUND) {
+			timer_data.status = FLIGHT_STATUS_GROUND;
+		}
 		return;
 	}
 
@@ -133,6 +138,9 @@ static void update_flight_status(void)
 		
 		/* Update session.json immediately when master state changes */
 		flight_timer_save();
+		
+		/* Trigger upload on state change */
+		session_upload_trigger(true);
 	}
 }
 
