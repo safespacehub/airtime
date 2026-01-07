@@ -184,13 +184,12 @@ def export_segment_to_csv(segment: List[Dict[str, Any]], output_file_path: str) 
         
         # Write data rows - expand each log line into multiple rows (one per pressure sample)
         total_rows = 0
-        for entry in segment:
+        for entry_idx, entry in enumerate(segment):
             fields = entry['raw_fields']
             
             # Base row data (same for all pressure samples from this log line)
             # Fields: flight_status, baro_state, gps_state, lat, lon, speed, alt, temp, then pressure samples
             base_row = {
-                'timestamp': entry['timestamp'].isoformat(),
                 'flight_status': fields[0] if len(fields) > 0 else '',
                 'baro_state': fields[1] if len(fields) > 1 else '',
                 'gps_state': fields[2] if len(fields) > 2 else '',
@@ -210,16 +209,46 @@ def export_segment_to_csv(segment: List[Dict[str, Any]], output_file_path: str) 
                 if pressure_val:  # Only add non-empty pressure values
                     pressure_samples.append(pressure_val)
             
-            # Create one row per pressure sample
+            # Calculate timestamp interpolation
+            # Samples are collected at 10 Hz (every 100ms) and logged once per second
+            # Interpolate timestamps evenly across the 1-second interval
+            current_timestamp = entry['timestamp']
+            
+            # Determine the time span for interpolation
+            # If there's a next entry, use the time difference; otherwise assume 1 second
+            if entry_idx < len(segment) - 1:
+                next_timestamp = segment[entry_idx + 1]['timestamp']
+                time_span = (next_timestamp - current_timestamp).total_seconds()
+            else:
+                # Last entry: assume 1 second interval (standard logging interval)
+                time_span = 1.0
+            
+            # Create one row per pressure sample with interpolated timestamps
             if pressure_samples:
-                for pressure in pressure_samples:
+                num_samples = len(pressure_samples)
+                # Distribute samples evenly across the time span
+                # First sample at current timestamp, last sample just before next timestamp
+                for sample_idx, pressure in enumerate(pressure_samples):
                     row = base_row.copy()
+                    # Interpolate timestamp: distribute evenly across time_span
+                    if num_samples > 1:
+                        # Fraction of time span for this sample (0.0 to 1.0)
+                        fraction = sample_idx / (num_samples - 1)
+                        # Calculate offset in seconds
+                        offset_seconds = fraction * time_span
+                        # Create interpolated timestamp
+                        interpolated_timestamp = current_timestamp + timedelta(seconds=offset_seconds)
+                        row['timestamp'] = interpolated_timestamp.isoformat()
+                    else:
+                        # Single sample: use current timestamp
+                        row['timestamp'] = current_timestamp.isoformat()
                     row['pressure'] = pressure
                     writer.writerow(row)
                     total_rows += 1
             else:
                 # If no pressure samples, write one row with empty pressure
                 row = base_row.copy()
+                row['timestamp'] = current_timestamp.isoformat()
                 row['pressure'] = ''
                 writer.writerow(row)
                 total_rows += 1

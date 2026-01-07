@@ -25,10 +25,6 @@ LOG_MODULE_REGISTER(gps_state, CONFIG_LOG_DEFAULT_LEVEL);
 /* Stale threshold in milliseconds */
 #define STALE_THRESHOLD_MS         20000
 
-/* Minimum number of valid fixes required before allowing state transitions */
-/* Prevents false state changes from inaccurate initial GPS fixes */
-#define MIN_FIXES_FOR_STATE_CHANGE 5
-
 /* Conversion factor: m/s to knots */
 #define MPS_TO_KTS                 1.94384f
 
@@ -120,7 +116,7 @@ bool gps_state_update(const struct nrf_modem_gnss_pvt_data_frame *pvt)
 		/* Prevent state transitions from UNKNOWN until we have enough fixes */
 		/* This prevents false state changes from inaccurate initial GPS readings */
 		if (state_data.state == GPS_STATE_UNKNOWN) {
-			if (valid_fix_count < MIN_FIXES_FOR_STATE_CHANGE) {
+			if (valid_fix_count < GPS_STATE_MIN_FIXES_FOR_STATE_CHANGE) {
 				/* Not enough fixes yet - stay in UNKNOWN */
 				new_state = GPS_STATE_UNKNOWN;
 			} else {
@@ -221,5 +217,10 @@ bool gps_state_is_stale(void)
 	}
 	int64_t age = k_uptime_get() - state_data.last_fix_time_ms;
 	return age > STALE_THRESHOLD_MS;
+}
+
+uint32_t gps_state_get_fix_count(void)
+{
+	return valid_fix_count;
 }
 

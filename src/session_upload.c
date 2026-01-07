@@ -32,7 +32,7 @@ LOG_MODULE_REGISTER(session_upload, CONFIG_LOG_DEFAULT_LEVEL);
 #define RETRY_MAX_DELAY_MS (8000)   /* Maximum delay: 8 seconds */
 
 /* Periodic upload intervals */
-#define GROUND_UPLOAD_INTERVAL_MS (60000)   /* 1 minute on ground */
+#define GROUND_UPLOAD_INTERVAL_MS (180000)   /* 3 minutes on ground */
 #define AIRBORNE_UPLOAD_INTERVAL_MS (300000) /* 5 minutes in air */
 
 /* State tracking */

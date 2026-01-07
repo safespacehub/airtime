@@ -10,6 +10,10 @@
 #include <stdbool.h>
 #include <nrf_modem_gnss.h>
 
+/* Minimum number of valid fixes required before allowing state transitions */
+/* Prevents false state changes from inaccurate initial GPS fixes */
+#define GPS_STATE_MIN_FIXES_FOR_STATE_CHANGE 5
+
 /**
  * @brief GPS-based flight states
  */
@@ -80,6 +84,12 @@ char gps_state_code(gps_state_t state);
  * @return true if stale, false otherwise
  */
 bool gps_state_is_stale(void);
+
+/**
+ * @brief Get the count of valid fixes received (for debugging)
+ * @return Number of valid fixes received since initialization or last reset
+ */
+uint32_t gps_state_get_fix_count(void);
 
 #endif /* GPS_STATE_H */
 

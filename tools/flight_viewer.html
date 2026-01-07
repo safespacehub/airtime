@@ -281,13 +281,14 @@
                     <thead>
                         <tr>
                             <th onclick="sortTable(0)">Timestamp ↑↓</th>
-                            <th onclick="sortTable(1)">Baro State ↑↓</th>
-                            <th onclick="sortTable(2)">GPS State ↑↓</th>
-                            <th onclick="sortTable(3)">Latitude ↑↓</th>
-                            <th onclick="sortTable(4)">Longitude ↑↓</th>
-                            <th onclick="sortTable(5)">Speed (kts) ↑↓</th>
-                            <th onclick="sortTable(6)">Altitude (ft) ↑↓</th>
-                            <th onclick="sortTable(7)">Temperature (°C) ↑↓</th>
+                            <th onclick="sortTable(1)">Flight State ↑↓</th>
+                            <th onclick="sortTable(2)">Baro State ↑↓</th>
+                            <th onclick="sortTable(3)">GPS State ↑↓</th>
+                            <th onclick="sortTable(4)">Latitude ↑↓</th>
+                            <th onclick="sortTable(5)">Longitude ↑↓</th>
+                            <th onclick="sortTable(6)">Speed (kts) ↑↓</th>
+                            <th onclick="sortTable(7)">Altitude (ft) ↑↓</th>
+                            <th onclick="sortTable(8)">Temperature (°C) ↑↓</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
@@ -371,6 +372,11 @@
         }
         
         // State code mappings
+        const flightStatusNames = {
+            'G': 'Ground',
+            'F': 'Flying'
+        };
+        
         const baroStateNames = {
             'G': 'Ground',
             'C': 'Climbing',
@@ -407,6 +413,12 @@
             'S': '#e74c3c',  // Red - Stopped
             'T': '#f39c12',  // Orange - Taxi
             'F': '#27ae60'   // Green - Flight
+        };
+        
+        // Flight status colors for background shading
+        const flightStatusColors = {
+            'G': 'rgba(149, 165, 166, 0.15)',  // Gray - Ground (light)
+            'F': 'rgba(39, 174, 96, 0.15)'      // Green - Flying (light)
         };
         
         /**
@@ -602,8 +614,8 @@
                     maxSpeed = Math.max(maxSpeed, speed);
                 }
                 
-                // Flight time (when GPS state is F)
-                if (row.gps_state === 'F') {
+                // Flight time (when flight_status is F - Flying)
+                if (row.flight_status === 'F') {
                     if (lastFlightTime === null) {
                         lastFlightTime = new Date(row.timestamp);
                     }
@@ -849,11 +861,74 @@
                 altChartDatasets.push(currentAltSegment);
             }
             
+            // Create background shading datasets based on flight_status
+            const backgroundDatasets = [];
+            let currentFlightStatus = null;
+            let currentBgSegment = null;
+            let bgSegmentStartIndex = 0;
+            
+            // Find max altitude for background shading (fill from bottom to top)
+            const validAltitudes = altitudes.filter(alt => alt !== null && !isNaN(alt) && alt > 0);
+            const maxAlt = validAltitudes.length > 0 ? Math.max(...validAltitudes) : 10000;
+            const bgMax = maxAlt * 1.1;  // Add 10% padding above for full coverage
+            
+            chartData.forEach((row, index) => {
+                const flightStatus = row.flight_status || 'G';
+                
+                if (flightStatus !== currentFlightStatus) {
+                    // State changed - finalize previous segment and start new one
+                    if (currentBgSegment && currentBgSegment.data.length > 0) {
+                        // Align segment data with full timestamp array using nulls
+                        const alignedData = new Array(timestamps.length).fill(null);
+                        for (let i = 0; i < currentBgSegment.data.length; i++) {
+                            alignedData[bgSegmentStartIndex + i] = currentBgSegment.data[i];
+                        }
+                        currentBgSegment.data = alignedData;
+                        backgroundDatasets.push(currentBgSegment);
+                    }
+                    
+                    currentFlightStatus = flightStatus;
+                    bgSegmentStartIndex = index;
+                    currentBgSegment = {
+                        label: flightStatusNames[flightStatus] || flightStatus,
+                        data: [],
+                        backgroundColor: flightStatusColors[flightStatus] || 'rgba(149, 165, 166, 0.1)',
+                        borderColor: 'transparent',
+                        borderWidth: 0,
+                        fill: 'start',  // Fill from the start (bottom) of the chart
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        order: -1,  // Render behind other datasets
+                        yAxisID: 'y',
+                        tension: 0
+                    };
+                }
+                
+                // Add point to current segment (use bgMax for full height shading)
+                if (currentBgSegment) {
+                    currentBgSegment.data.push(bgMax);
+                }
+            });
+            
+            // Don't forget the last segment
+            if (currentBgSegment && currentBgSegment.data.length > 0) {
+                // Align segment data with full timestamp array using nulls
+                const alignedData = new Array(timestamps.length).fill(null);
+                for (let i = 0; i < currentBgSegment.data.length; i++) {
+                    alignedData[bgSegmentStartIndex + i] = currentBgSegment.data[i];
+                }
+                currentBgSegment.data = alignedData;
+                backgroundDatasets.push(currentBgSegment);
+            }
+            
+            // Combine background datasets (first) with altitude datasets (on top)
+            const allDatasets = [...backgroundDatasets, ...altChartDatasets];
+            
             altitudeChart = new Chart(altCtx, {
                 type: 'line',
                 data: {
                     labels: timestamps,
-                    datasets: altChartDatasets
+                    datasets: allDatasets
                 },
                 options: {
                     responsive: true,
@@ -1026,6 +1101,7 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${row.timestamp}</td>
+                    <td>${flightStatusNames[row.flight_status] || row.flight_status || ''}</td>
                     <td>${baroStateNames[row.baro_state] || row.baro_state}</td>
                     <td>${gpsStateNames[row.gps_state] || row.gps_state}</td>
                     <td>${parseFloat(row.latitude).toFixed(6)}</td>
@@ -1042,7 +1118,7 @@
                 const tr = document.createElement('tr');
                 tr.className = 'info-row';
                 tr.innerHTML = `
-                    <td colspan="8" style="text-align: center; padding: 20px; background: #ecf0f1; color: #7f8c8d;">
+                    <td colspan="9" style="text-align: center; padding: 20px; background: #ecf0f1; color: #7f8c8d;">
                         Showing ${MAX_TABLE_ROWS.toLocaleString()} of ${originalCount.toLocaleString()} rows. 
                         Use filters to narrow down the data.
                     </td>
@@ -1076,31 +1152,35 @@
                         aVal = new Date(a.timestamp);
                         bVal = new Date(b.timestamp);
                         break;
-                    case 1: // baro_state
+                    case 1: // flight_status
+                        aVal = a.flight_status || '';
+                        bVal = b.flight_status || '';
+                        break;
+                    case 2: // baro_state
                         aVal = a.baro_state;
                         bVal = b.baro_state;
                         break;
-                    case 2: // gps_state
+                    case 3: // gps_state
                         aVal = a.gps_state;
                         bVal = b.gps_state;
                         break;
-                    case 3: // latitude
+                    case 4: // latitude
                         aVal = parseFloat(a.latitude) || 0;
                         bVal = parseFloat(b.latitude) || 0;
                         break;
-                    case 4: // longitude
+                    case 5: // longitude
                         aVal = parseFloat(a.longitude) || 0;
                         bVal = parseFloat(b.longitude) || 0;
                         break;
-                    case 5: // speed
+                    case 6: // speed
                         aVal = parseFloat(a.speed_kts) || 0;
                         bVal = parseFloat(b.speed_kts) || 0;
                         break;
-                    case 6: // altitude
+                    case 7: // altitude
                         aVal = parseFloat(a.altitude_m) || 0;
                         bVal = parseFloat(b.altitude_m) || 0;
                         break;
-                    case 7: // temperature
+                    case 8: // temperature
                         aVal = parseFloat(a.temperature_c) || 0;
                         bVal = parseFloat(b.temperature_c) || 0;
                         break;

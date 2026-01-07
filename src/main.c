@@ -22,6 +22,7 @@ extern struct sys_heap _system_heap;
 #include <modem/nrf_modem_lib.h>
 #include <nrf_modem_gnss.h>
 #include <modem/lte_lc.h>
+#include <nrf_modem_at.h>
 #include <time.h>
 #include <stdio.h>
 
@@ -53,6 +54,12 @@ static struct nrf_modem_gnss_agnss_data_frame last_agnss;
 static struct k_work agnss_data_get_work;
 static volatile bool requesting_assistance;
 
+/* LTE reception management based on flight status */
+static struct k_work_delayable lte_disable_work;
+static flight_status_t prev_flight_status_for_lte = FLIGHT_STATUS_GROUND;
+static bool lte_disabled_for_flight = false;
+#define LTE_DISABLE_DELAY_MS (60 * 1000)  /* 1 minute delay before disabling LTE */
+
 /* BMP581 device */
 static const struct device *bmp581_dev;
 
@@ -64,6 +71,11 @@ static const struct device *bmp581_dev;
 static void gnss_event_handler(int event);
 static void lte_handler(const struct lte_lc_evt *const evt);
 static void agnss_data_get_work_fn(struct k_work *item);
+static void get_modem_status(char *status_str, size_t status_str_size);
+static int gnss_only_mode(void);
+static int enable_lte(void);
+static void lte_disable_work_fn(struct k_work *work);
+static void check_flight_status_for_lte(void);
 
 static const char *get_system_string(uint8_t system_id)
 {
@@ -77,6 +89,230 @@ static const char *get_system_string(uint8_t system_id)
 	default:
 		return "unknown";
 	}
+}
+
+static const char *get_reg_status_string(enum lte_lc_nw_reg_status status)
+{
+	switch (status) {
+	case LTE_LC_NW_REG_NOT_REGISTERED:
+		return "NOT_REGISTERED";
+	case LTE_LC_NW_REG_REGISTERED_HOME:
+		return "REGISTERED_HOME";
+	case LTE_LC_NW_REG_SEARCHING:
+		return "SEARCHING";
+	case LTE_LC_NW_REG_REGISTRATION_DENIED:
+		return "REGISTRATION_DENIED";
+	case LTE_LC_NW_REG_UNKNOWN:
+		return "UNKNOWN";
+	case LTE_LC_NW_REG_REGISTERED_ROAMING:
+		return "REGISTERED_ROAMING";
+	case LTE_LC_NW_REG_UICC_FAIL:
+		return "UICC_FAIL";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static const char *get_system_mode_string(enum lte_lc_system_mode mode)
+{
+	switch (mode) {
+	case LTE_LC_SYSTEM_MODE_LTEM:
+		return "LTE-M";
+	case LTE_LC_SYSTEM_MODE_NBIOT:
+		return "NB-IoT";
+	case LTE_LC_SYSTEM_MODE_GPS:
+		return "GPS";
+	case LTE_LC_SYSTEM_MODE_LTEM_GPS:
+		return "LTE-M+GPS";
+	case LTE_LC_SYSTEM_MODE_NBIOT_GPS:
+		return "NB-IoT+GPS";
+	case LTE_LC_SYSTEM_MODE_LTEM_NBIOT:
+		return "LTE-M+NB-IoT";
+	case LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS:
+		return "LTE-M+NB-IoT+GPS";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static const char *get_func_mode_string(enum lte_lc_func_mode mode)
+{
+	switch (mode) {
+	case LTE_LC_FUNC_MODE_POWER_OFF:
+		return "POWER_OFF";
+	case LTE_LC_FUNC_MODE_NORMAL:
+		return "NORMAL";
+	case LTE_LC_FUNC_MODE_RX_ONLY:
+		return "RX_ONLY";
+	case LTE_LC_FUNC_MODE_OFFLINE:
+		return "OFFLINE";
+	case LTE_LC_FUNC_MODE_OFFLINE_UICC_ON:
+		return "OFFLINE_UICC_ON";
+	case LTE_LC_FUNC_MODE_DEACTIVATE_LTE:
+		return "DEACTIVATE_LTE";
+	case LTE_LC_FUNC_MODE_ACTIVATE_LTE:
+		return "ACTIVATE_LTE";
+	case LTE_LC_FUNC_MODE_DEACTIVATE_GNSS:
+		return "DEACTIVATE_GNSS";
+	case LTE_LC_FUNC_MODE_ACTIVATE_GNSS:
+		return "ACTIVATE_GNSS";
+	case LTE_LC_FUNC_MODE_DEACTIVATE_UICC:
+		return "DEACTIVATE_UICC";
+	case LTE_LC_FUNC_MODE_ACTIVATE_UICC:
+		return "ACTIVATE_UICC";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static void get_modem_status(char *status_str, size_t status_str_size)
+{
+	int err;
+	enum lte_lc_nw_reg_status reg_status;
+	enum lte_lc_lte_mode lte_mode = LTE_LC_LTE_MODE_NONE;
+	enum lte_lc_system_mode system_mode = LTE_LC_SYSTEM_MODE_LTEM_NBIOT_GPS;
+	enum lte_lc_system_mode_preference system_pref = LTE_LC_SYSTEM_MODE_PREFER_AUTO;
+	enum lte_lc_func_mode func_mode = LTE_LC_FUNC_MODE_NORMAL;
+	char rsrp_str[32] = "N/A";
+	char band_str[64] = "N/A";
+	char psm_str[64] = "N/A";
+	char edrx_str[64] = "N/A";
+	char sys_mode_str[64] = "N/A";
+	char func_mode_str[32] = "N/A";
+	
+	/* Get network registration status */
+	err = lte_lc_nw_reg_status_get(&reg_status);
+	if (err != 0) {
+		snprintf(status_str, status_str_size, "reg_status=ERROR(%d)", err);
+		return;
+	}
+	
+	/* Get LTE mode */
+	err = lte_lc_lte_mode_get(&lte_mode);
+	if (err != 0) {
+		/* Not critical, continue */
+	}
+	
+	/* Get system mode and preference */
+	err = lte_lc_system_mode_get(&system_mode, &system_pref);
+	if (err == 0) {
+		snprintf(sys_mode_str, sizeof(sys_mode_str), "%s(pref:%d)",
+			get_system_mode_string(system_mode), system_pref);
+	}
+	
+	/* Get function mode */
+	err = lte_lc_func_mode_get(&func_mode);
+	if (err == 0) {
+		snprintf(func_mode_str, sizeof(func_mode_str), "%s",
+			get_func_mode_string(func_mode));
+	}
+	
+	/* Get PSM status */
+	#if defined(CONFIG_LTE_LC_PSM_MODULE)
+	int psm_tau = -1, psm_active_time = -1;
+	err = lte_lc_psm_get(&psm_tau, &psm_active_time);
+	if (err == 0) {
+		if (psm_active_time >= 0) {
+			/* PSM is active */
+			snprintf(psm_str, sizeof(psm_str), "PSM: tau=%ds, active=%ds",
+				psm_tau, psm_active_time);
+		} else {
+			/* PSM is disabled */
+			snprintf(psm_str, sizeof(psm_str), "PSM: disabled");
+		}
+	}
+	#endif
+	
+	/* Get eDRX status */
+	#if defined(CONFIG_LTE_LC_EDRX_MODULE)
+	struct lte_lc_edrx_cfg edrx_cfg = {0};
+	err = lte_lc_edrx_get(&edrx_cfg);
+	if (err == 0) {
+		if (edrx_cfg.mode != LTE_LC_LTE_MODE_NONE) {
+			const char *edrx_mode_str = (edrx_cfg.mode == LTE_LC_LTE_MODE_LTEM) ? "LTE-M" : "NB-IoT";
+			snprintf(edrx_str, sizeof(edrx_str), "eDRX: %s, interval=%.2fs, PTW=%.2fs",
+				edrx_mode_str, (double)edrx_cfg.edrx, (double)edrx_cfg.ptw);
+		} else {
+			snprintf(edrx_str, sizeof(edrx_str), "eDRX: disabled");
+		}
+	}
+	#endif
+	
+	/* Get RSRP (signal strength) via AT command */
+	char response[128];
+	err = nrf_modem_at_cmd(response, sizeof(response), "AT+CESQ");
+	if (err == 0) {
+		/* Parse response: +CESQ: <rxlev>,<ber>,<rscp>,<ecno>,<rsrq>,<rsrp> */
+		/* Response may include \r\n and OK, so search for +CESQ: */
+		const char *cesq_start = strstr(response, "+CESQ:");
+		if (cesq_start != NULL) {
+			int rxlev = -1, ber = -1, rscp = -1, ecno = -1, rsrq = -1, rsrp = -1;
+			if (sscanf(cesq_start, "+CESQ: %d,%d,%d,%d,%d,%d", 
+				   &rxlev, &ber, &rscp, &ecno, &rsrq, &rsrp) >= 6) {
+				/* RSRP is in index format, convert to dBm */
+				/* Index 0-97: RSRP_dBm = index - 140 (0 = -140 dBm, 97 = -44 dBm) */
+				/* Index 255: unknown */
+				if (rsrp >= 0 && rsrp <= 97) {
+					int rsrp_dbm = rsrp - 140;
+					snprintf(rsrp_str, sizeof(rsrp_str), "%d dBm", rsrp_dbm);
+				} else if (rsrp == 255) {
+					snprintf(rsrp_str, sizeof(rsrp_str), "unknown");
+				} else {
+					snprintf(rsrp_str, sizeof(rsrp_str), "invalid(%d)", rsrp);
+				}
+			}
+		}
+	}
+	
+	/* Get current band via AT command */
+	err = nrf_modem_at_cmd(response, sizeof(response), "AT%%XCBAND");
+	if (err == 0) {
+		/* Parse response: %XCBAND: <band> */
+		/* Response may include \r\n and OK, so search for %XCBAND: */
+		const char *band_start = strstr(response, "%XCBAND:");
+		if (band_start != NULL) {
+			int band = -1;
+			if (sscanf(band_start, "%%XCBAND: %d", &band) == 1) {
+				snprintf(band_str, sizeof(band_str), "Band %d", band);
+			} else {
+				/* Try to extract band value from response string */
+				band_start += 8; /* Skip "%XCBAND: " */
+				/* Copy up to newline or end */
+				size_t len = 0;
+				while (band_start[len] != '\0' && band_start[len] != '\r' && 
+				       band_start[len] != '\n' && len < sizeof(band_str) - 1) {
+					band_str[len] = band_start[len];
+					len++;
+				}
+				band_str[len] = '\0';
+			}
+		}
+	}
+	
+	/* Format modem status string */
+	const char *lte_mode_str = "N/A";
+	switch (lte_mode) {
+	case LTE_LC_LTE_MODE_NONE:
+		lte_mode_str = "NONE";
+		break;
+	case LTE_LC_LTE_MODE_LTEM:
+		lte_mode_str = "LTE-M";
+		break;
+	case LTE_LC_LTE_MODE_NBIOT:
+		lte_mode_str = "NB-IoT";
+		break;
+	}
+	
+	snprintf(status_str, status_str_size,
+		"reg=%s, lte_mode=%s, sys_mode=%s, func_mode=%s, rsrp=%s, band=%s, %s, %s",
+		get_reg_status_string(reg_status),
+		lte_mode_str,
+		sys_mode_str,
+		func_mode_str,
+		rsrp_str,
+		band_str,
+		psm_str,
+		edrx_str);
 }
 
 static int init_modem(void)
@@ -93,6 +329,8 @@ static int init_modem(void)
 
 	/* Register LTE event handler */
 	lte_lc_register_handler(lte_handler);
+
+	/* Band lock will be applied after first GPS fix - see gnss_event_handler */
 
 	/* Request PSM for power saving */
 	err = lte_lc_psm_req(true);
@@ -193,6 +431,143 @@ static void agnss_data_get_work_fn(struct k_work *item)
 	}
 
 	requesting_assistance = false;
+}
+
+static void lte_disable_work_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	
+	/* Verify flight status is still AIRBORNE before disabling LTE */
+	flight_status_t current_status = flight_timer_get_status();
+	
+	if (current_status == FLIGHT_STATUS_AIRBORNE) {
+		LOG_INF("Flight status still AIRBORNE after 1 minute - disabling LTE");
+		
+		/* Disconnect LTE first */
+		int err = lte_lc_offline();
+		if (err) {
+			LOG_WRN("Failed to disconnect LTE: %d", err);
+		} else {
+			k_sleep(K_MSEC(500));
+		}
+		
+		/* Switch to GNSS-only mode */
+		err = gnss_only_mode();
+		if (err) {
+			LOG_ERR("Failed to switch to GNSS-only mode: %d", err);
+		} else {
+			lte_disabled_for_flight = true;
+			LOG_INF("LTE disabled for flight, GNSS running");
+		}
+	} else {
+		LOG_INF("Flight status returned to GROUND - LTE will remain enabled");
+	}
+}
+
+static void check_flight_status_for_lte(void)
+{
+	flight_status_t current_status = flight_timer_get_status();
+	
+	/* Detect transition from GROUND to AIRBORNE (leaving ground) */
+	if (prev_flight_status_for_lte == FLIGHT_STATUS_GROUND &&
+	    current_status == FLIGHT_STATUS_AIRBORNE) {
+		LOG_INF("Left ground (GROUND -> AIRBORNE) - scheduling LTE disable in 1 minute");
+		
+		/* Cancel any pending work and schedule new delayed work */
+		k_work_cancel_delayable(&lte_disable_work);
+		k_work_schedule_for_queue(&gnss_work_q, &lte_disable_work,
+					  K_MSEC(LTE_DISABLE_DELAY_MS));
+	}
+	
+	/* Detect transition from AIRBORNE to GROUND (entering ground) */
+	if (prev_flight_status_for_lte == FLIGHT_STATUS_AIRBORNE &&
+	    current_status == FLIGHT_STATUS_GROUND) {
+		LOG_INF("Entered ground (AIRBORNE -> GROUND)");
+		
+		/* Cancel any pending LTE disable work */
+		k_work_cancel_delayable(&lte_disable_work);
+		
+		/* Re-enable LTE if it was disabled for flight */
+		if (lte_disabled_for_flight) {
+			LOG_INF("Re-enabling LTE after landing");
+			int err = enable_lte();
+			if (err) {
+				LOG_ERR("Failed to re-enable LTE: %d", err);
+			} else {
+				lte_disabled_for_flight = false;
+				LOG_INF("LTE re-enabled");
+			}
+		}
+	}
+	
+	/* Update previous status */
+	prev_flight_status_for_lte = current_status;
+}
+
+static int gnss_only_mode(void)
+{
+	int err;
+
+	/* After lte_lc_offline(), modem is in flight mode with BOTH LTE and GNSS disabled.
+	 * We need to activate GNSS while keeping LTE off.
+	 * Use ACTIVATE_GNSS (CFUN=31) to turn on GNSS without enabling LTE.
+	 */
+	LOG_INF("Activating GNSS while keeping LTE disabled...");
+	err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_ACTIVATE_GNSS);
+	if (err) {
+		LOG_ERR("Failed to activate GNSS: %d", err);
+		return err;
+	}
+
+	LOG_INF("GNSS activated (LTE remains disabled)");
+	
+	/* Small delay to ensure GNSS activation is processed */
+	k_sleep(K_MSEC(500));
+	
+	/* Start GNSS to begin getting fixes */
+	err = nrf_modem_gnss_start();
+	if (err == -13) {
+		/* Error -13 (-EACCES) likely means GPS is already running, which is OK */
+		LOG_INF("GPS appears to already be running");
+		return 0;
+	} else if (err) {
+		LOG_WRN("GPS start returned error %d (may already be running)", err);
+		return err;
+	} else {
+		LOG_INF("GPS started successfully");
+		return 0;
+	}
+}
+
+static int enable_lte(void)
+{
+	int err;
+
+	/* Activate LTE while keeping GNSS running.
+	 * Use ACTIVATE_LTE (CFUN=21) to turn on LTE without changing GNSS state.
+	 */
+	LOG_INF("Activating LTE (GNSS will continue running)...");
+	err = lte_lc_func_mode_set(LTE_LC_FUNC_MODE_ACTIVATE_LTE);
+	if (err) {
+		LOG_ERR("Failed to activate LTE: %d", err);
+		return err;
+	}
+
+	LOG_INF("LTE activated (GNSS remains active)");
+	
+	/* Small delay to ensure LTE activation is processed */
+	k_sleep(K_MSEC(500));
+	
+	/* Connect to LTE network */
+	LOG_INF("Connecting to LTE network...");
+	err = lte_lc_connect();
+	if (err) {
+		LOG_ERR("Failed to connect to LTE network: %d", err);
+		return err;
+	}
+
+	LOG_INF("LTE connection initiated");
+	return 0;
 }
 
 static int init_gnss(void)
@@ -516,6 +891,7 @@ int main(void)
 
 	/* Initialize A-GNSS work and SUPL assistance */
 	k_work_init(&agnss_data_get_work, agnss_data_get_work_fn);
+	k_work_init_delayable(&lte_disable_work, lte_disable_work_fn);
 
 	err = supl_assist_init(&gnss_work_q);
 	if (err) {
@@ -563,6 +939,9 @@ int main(void)
 		/* Process GPS PVT data if available */
 		if (k_sem_take(&pvt_data_sem, K_NO_WAIT) == 0) {
 			flight_timer_process_gps(&last_pvt);
+			
+			/* Check flight status for LTE reception management */
+			check_flight_status_for_lte();
 			
 			/* Log fix status - only log when fix is lost or debug level */
 			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID) {
@@ -694,11 +1073,103 @@ int main(void)
 			}
 			#endif
 			
+			/* GPS fix status information - use last_pvt that's already updated by event handler */
+			char gps_fix_status[1024] = "no_data";
+			uint8_t tracked_sv = 0;
+			uint8_t used_sv = 0;
+			
+			/* Use last_pvt data that's already being updated by the event handler */
+			/* Count tracked and used satellites */
+			for (int i = 0; i < NRF_MODEM_GNSS_MAX_SATELLITES; i++) {
+				if (last_pvt.sv[i].sv == 0) {
+					break;
+				}
+				tracked_sv++;
+				if (last_pvt.sv[i].flags & NRF_MODEM_GNSS_SV_FLAG_USED_IN_FIX) {
+					used_sv++;
+				}
+			}
+			
+			/* Build status string with flags */
+			char flags_str[128] = "";
+			size_t flags_len = 0;
+			
+			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID) {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "FIX_VALID");
+			} else {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "NO_FIX");
+			}
+			
+			/* Add additional flag indicators */
+			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_DEADLINE_MISSED) {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "|DEADLINE_MISSED");
+			}
+			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_NOT_ENOUGH_WINDOW_TIME) {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "|INSUFFICIENT_TIME");
+			}
+			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_SLEEP_BETWEEN_PVT) {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "|SLEPT");
+			}
+			if (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_VELOCITY_VALID) {
+				flags_len += snprintf(flags_str + flags_len, sizeof(flags_str) - flags_len, "|VEL_VALID");
+			}
+			
+			/* Format last fix time and age */
+			char last_fix_time_str[64] = "never";
+			if (gps_data->last_fix_time_ms > 0) {
+				int64_t fix_age_ms = now - gps_data->last_fix_time_ms;
+				int64_t fix_age_sec = fix_age_ms / 1000;
+				
+				/* Convert last fix time to absolute time if RTC is available */
+				int64_t fix_timestamp_ms = rtc_get_timestamp_ms() - fix_age_ms;
+				time_t fix_time_sec = fix_timestamp_ms / 1000;
+				struct tm *fix_tm_info = gmtime(&fix_time_sec);
+				
+				if (fix_tm_info != NULL && fix_timestamp_ms > 0) {
+					char fix_time_buf[32];
+					strftime(fix_time_buf, sizeof(fix_time_buf), "%H:%M:%S", fix_tm_info);
+					snprintf(last_fix_time_str, sizeof(last_fix_time_str), 
+						"%s (%llds ago)", fix_time_buf, (long long)fix_age_sec);
+				} else {
+					/* Fallback to just age if RTC not available */
+					snprintf(last_fix_time_str, sizeof(last_fix_time_str), 
+						"%llds ago", (long long)fix_age_sec);
+				}
+			}
+			
+			snprintf(gps_fix_status, sizeof(gps_fix_status),
+				"fix=%s, sv_tracked=%u, sv_used=%u, exec_time=%u ms, "
+				"hdop=%.1f, accuracy=%.1f m, flags=0x%02x (%s), last_fix=%s",
+				(last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID) ? "YES" : "NO",
+				tracked_sv, used_sv, last_pvt.execution_time,
+				(double)last_pvt.hdop, (double)last_pvt.accuracy,
+				last_pvt.flags, flags_str, last_fix_time_str);
+			
+			/* Show fix count when in UNKNOWN state to explain why state hasn't changed */
+			gps_state_t current_gps_state = gps_state_get();
+			const char *gps_state_str = gps_state_name(current_gps_state);
+			char gps_state_with_count[64];
+			
+			if (current_gps_state == GPS_STATE_UNKNOWN && 
+			    (last_pvt.flags & NRF_MODEM_GNSS_PVT_FLAG_FIX_VALID)) {
+				/* Show fix count when we have a valid fix but state is still UNKNOWN */
+				uint32_t fix_count = gps_state_get_fix_count();
+				snprintf(gps_state_with_count, sizeof(gps_state_with_count), 
+					"%s (fixes=%u/%d)", gps_state_str, fix_count, GPS_STATE_MIN_FIXES_FOR_STATE_CHANGE);
+				gps_state_str = gps_state_with_count;
+			}
+			
+			/* Get modem status */
+			char modem_status[512] = "N/A";
+			if (nrf_modem_is_initialized()) {
+				get_modem_status(modem_status, sizeof(modem_status));
+			}
+			
 			LOG_INF("STATUS: time=%s, gps_state=%s, baro_state=%s, "
 				"lat=%.6f, lon=%.6f, speed=%.1f kts, "
 				"pressure=%.1f Pa, temp=%.1f C, mem=%s, cpu=%s",
 				time_str,
-				gps_state_name(gps_state_get()),
+				gps_state_str,
 				baro_state_name(baro_state_get()),
 				gps_data->latitude,
 				gps_data->longitude,
@@ -707,6 +1178,9 @@ int main(void)
 				(double)baro_data->temperature_c,
 				mem_info,
 				cpu_info);
+			
+			LOG_INF("GPS_FIX_STATUS: %s", gps_fix_status);
+			LOG_INF("MODEM_STATUS: %s", modem_status);
 			
 			last_status_time = now;
 		}

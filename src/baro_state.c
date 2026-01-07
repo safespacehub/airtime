@@ -41,6 +41,7 @@ static uint16_t buffer_count = 0;
 static bool buffer_filled_logged = false;  /* Track if we've logged buffer fill */
 
 static struct baro_state_data state_data;
+static baro_state_t last_vertical_state = BARO_STATE_GROUND;  /* Track last climbing/descending state */
 
 float baro_pressure_to_altitude_ft(float pressure_pa)
 {
@@ -134,6 +135,7 @@ int baro_state_init(void)
 	state_data.state_enter_time_ms = k_uptime_get();
 	state_data.cruise_start_time_ms = 0;
 	state_data.in_flight = false;
+	last_vertical_state = BARO_STATE_GROUND;
 
 	LOG_INF("Barometer state machine initialized (buffer: %d samples)", BUFFER_SIZE);
 	return 0;
@@ -209,8 +211,12 @@ bool baro_state_update(float pressure_pa, float temperature_c)
 			/* Guard: Cannot transition to ground if cruising for > 2 min */
 			int64_t cruise_duration = now - state_data.cruise_start_time_ms;
 			if (cruise_duration < CRUISE_GUARD_TIME_MS) {
-				new_state = BARO_STATE_GROUND;
-				state_data.in_flight = false;
+				/* Additional guard: Prevent false landing if previous vertical state was climbing */
+				if (last_vertical_state != BARO_STATE_CLIMBING) {
+					new_state = BARO_STATE_GROUND;
+					state_data.in_flight = false;
+				}
+				/* If previous state was CLIMBING, stay in cruise until descent */
 			}
 			/* If > 2 min cruise, stay in cruise until descent */
 		} else {
@@ -225,9 +231,13 @@ bool baro_state_update(float pressure_pa, float temperature_c)
 
 	case BARO_STATE_DESCENDING:
 		if (altitude_indicates_ground) {
-			/* Descending to ground is allowed */
-			new_state = BARO_STATE_GROUND;
-			state_data.in_flight = false;
+			/* Guard: Prevent false landing if previous vertical state was climbing */
+			/* Descending to ground is allowed only if we didn't come from climbing */
+			if (last_vertical_state != BARO_STATE_CLIMBING) {
+				new_state = BARO_STATE_GROUND;
+				state_data.in_flight = false;
+			}
+			/* If previous state was CLIMBING, stay in descending (need more descent time) */
 		} else {
 			/* Update vertical state */
 			if (state_data.vertical_rate_fpm > VERTICAL_RATE_CLIMB_FPM) {
@@ -239,6 +249,16 @@ bool baro_state_update(float pressure_pa, float temperature_c)
 			}
 		}
 		break;
+	}
+
+	/* Update last_vertical_state when entering climbing or descending */
+	if (new_state == BARO_STATE_CLIMBING || new_state == BARO_STATE_DESCENDING) {
+		last_vertical_state = new_state;
+	}
+	
+	/* Reset last_vertical_state when successfully entering ground */
+	if (new_state == BARO_STATE_GROUND && old_state != BARO_STATE_GROUND) {
+		last_vertical_state = BARO_STATE_GROUND;
 	}
 
 	/* Update state if changed */
