@@ -34,5 +34,19 @@ void session_upload_periodic_update(void);
  */
 bool session_upload_is_lte_ready(void);
 
+/**
+ * @brief Upload and delete all prior session files (old-*.json)
+ * Finds all old-*.json files, uploads them with hw_id, and deletes them after successful upload
+ * @return 0 on success, negative errno on failure
+ */
+int session_upload_prior_sessions(void);
+
+/**
+ * @brief Upload both active session and all prior sessions
+ * Uploads current active session first, then all prior sessions (old-*.json)
+ * @return 0 on success, negative errno on failure
+ */
+int session_upload_all(void);
+
 #endif /* SESSION_UPLOAD_H */
 

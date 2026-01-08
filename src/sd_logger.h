@@ -71,5 +71,22 @@ int sd_logger_write_file(const char *filename, const void *data, size_t len);
  */
 int sd_logger_read_file(const char *filename, void *data, size_t len);
 
+/**
+ * @brief List files matching a pattern
+ * @param pattern Pattern to match (supports * prefix/suffix, e.g., "old-*.json")
+ * @param filenames Output array of matching filenames
+ * @param max_files Maximum number of files to return
+ * @param found_count Output parameter for number of files found
+ * @return 0 on success, negative errno on failure
+ */
+int sd_logger_list_files(const char *pattern, char filenames[][64], size_t max_files, size_t *found_count);
+
+/**
+ * @brief Delete a file from SD card
+ * @param filename Filename to delete
+ * @return 0 on success, negative errno on failure
+ */
+int sd_logger_delete_file(const char *filename);
+
 #endif /* SD_LOGGER_H */
 

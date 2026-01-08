@@ -917,7 +917,13 @@ int main(void)
 		err = start_session();
 		if (err) {
 			LOG_ERR("Failed to start session: %d", err);
+		}
 	}
+
+	/* Trigger upload of all sessions at startup (after LTE is connected) */
+	if (session_upload_is_lte_ready() && sd_logger_is_mounted()) {
+		LOG_INF("Triggering startup upload of all sessions (active + prior)");
+		session_upload_all();
 	}
 
 	LOG_INF("Initialization complete, entering main loop");

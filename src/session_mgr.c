@@ -77,14 +77,14 @@ static int rotate_existing_session(void)
 		LOG_WRN("Failed to read file for rotation: %d", ret);
 	}
 	
-	/* Generate new filename: either {uuid}.json or timestamp-based */
+	/* Generate new filename: either old-{uuid}.json or timestamp-based */
 	if (old_uuid[0] != '\0') {
-		/* Use UUID from existing file */
-		snprintf(new_filename, sizeof(new_filename), "%s.json", old_uuid);
+		/* Use UUID from existing file with "old-" prefix */
+		snprintf(new_filename, sizeof(new_filename), "old-%s.json", old_uuid);
 	} else {
 		/* Fallback: use timestamp */
 		int64_t timestamp_ms = rtc_get_timestamp_ms();
-		snprintf(new_filename, sizeof(new_filename), "session_%" PRId64 ".json", timestamp_ms);
+		snprintf(new_filename, sizeof(new_filename), "old-session_%" PRId64 ".json", timestamp_ms);
 	}
 	
 	/* Rename session.json to the new filename */

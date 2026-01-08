@@ -291,3 +291,121 @@ int sd_logger_read_file(const char *filename, void *data, size_t len)
 	k_mutex_unlock(&sd_logger_mutex);
 	return (int)bytes_read;
 }
+
+int sd_logger_list_files(const char *pattern, char filenames[][64], size_t max_files, size_t *found_count)
+{
+	if (!mounted || pattern == NULL || filenames == NULL || found_count == NULL) {
+		return -EINVAL;
+	}
+
+	/* Protect filesystem operations with mutex */
+	if (k_mutex_lock(&sd_logger_mutex, K_FOREVER) != 0) {
+		return -EAGAIN;
+	}
+
+	char dir_path[MAX_PATH_LEN];
+	snprintf(dir_path, sizeof(dir_path), "%s", SD_MOUNT_POINT);
+
+	struct fs_dir_t dirp;
+	fs_dir_t_init(&dirp);
+
+	int ret = fs_opendir(&dirp, dir_path);
+	if (ret != 0) {
+		k_mutex_unlock(&sd_logger_mutex);
+		return ret;
+	}
+
+	struct fs_dirent entry;
+	size_t count = 0;
+
+	LOG_DBG("Listing files in %s with pattern: %s", dir_path, pattern);
+
+	/* Read directory entries */
+	while (count < max_files) {
+		ret = fs_readdir(&dirp, &entry);
+		if (ret != 0 || entry.name[0] == '\0') {
+			break;
+		}
+
+		/* Skip directories */
+		if (entry.type == FS_DIR_ENTRY_DIR) {
+			LOG_DBG("Skipping directory: %s", entry.name);
+			continue;
+		}
+
+		LOG_DBG("Checking file: %s", entry.name);
+
+		/* Check if filename matches pattern (supports prefix*suffix like "old-*.json") */
+		bool matches = false;
+		const char *wildcard = strchr(pattern, '*');
+		
+		if (wildcard == NULL) {
+			/* No wildcard - exact match */
+			matches = (strcmp(entry.name, pattern) == 0);
+		} else {
+			/* Has wildcard - check prefix and suffix */
+			size_t prefix_len = wildcard - pattern;
+			const char *suffix = wildcard + 1;
+			size_t suffix_len = strlen(suffix);
+			size_t name_len = strlen(entry.name);
+			
+			/* Check prefix matches */
+			bool prefix_match = (prefix_len == 0) || 
+			                    (name_len >= prefix_len && 
+			                     strncmp(entry.name, pattern, prefix_len) == 0);
+			
+			/* Check suffix matches */
+			bool suffix_match = (suffix_len == 0) ||
+			                    (name_len >= suffix_len &&
+			                     strcmp(&entry.name[name_len - suffix_len], suffix) == 0);
+			
+			/* Both prefix and suffix must match, and name must be long enough */
+			matches = prefix_match && suffix_match && 
+			          (prefix_len + suffix_len <= name_len);
+		}
+
+		if (matches) {
+			size_t name_len = strlen(entry.name);
+			if (name_len < sizeof(filenames[0])) {
+				strncpy(filenames[count], entry.name, sizeof(filenames[0]) - 1);
+				filenames[count][sizeof(filenames[0]) - 1] = '\0';
+				LOG_DBG("Matched file: %s", entry.name);
+				count++;
+			} else {
+				LOG_WRN("Filename too long to store: %s", entry.name);
+			}
+		}
+	}
+
+	fs_closedir(&dirp);
+	k_mutex_unlock(&sd_logger_mutex);
+
+	*found_count = count;
+	return 0;
+}
+
+int sd_logger_delete_file(const char *filename)
+{
+	if (!mounted || filename == NULL) {
+		return -EINVAL;
+	}
+
+	/* Protect filesystem operations with mutex */
+	if (k_mutex_lock(&sd_logger_mutex, K_FOREVER) != 0) {
+		return -EAGAIN;
+	}
+
+	char path[MAX_PATH_LEN];
+	snprintf(path, sizeof(path), "%s/%s", SD_MOUNT_POINT, filename);
+
+	int ret = fs_unlink(path);
+	if (ret == 0) {
+		LOG_INF("Deleted file: %s", filename);
+	} else if (ret != -ENOENT) {
+		LOG_ERR("Failed to delete file %s: %d", filename, ret);
+	}
+	/* -ENOENT means file doesn't exist, which is fine */
+
+	k_mutex_unlock(&sd_logger_mutex);
+	return ret;
+}

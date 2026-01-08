@@ -140,7 +140,13 @@ static void update_flight_status(void)
 		flight_timer_save();
 		
 		/* Trigger upload on state change */
-		session_upload_trigger(true);
+		/* If entering ground state and LTE is ready, upload all sessions (active + prior) */
+		if (new_status == FLIGHT_STATUS_GROUND && session_upload_is_lte_ready()) {
+			session_upload_all();
+		} else {
+			/* Otherwise just upload active session */
+			session_upload_trigger(true);
+		}
 	}
 }
 
