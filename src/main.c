@@ -34,6 +34,7 @@ extern struct sys_heap _system_heap;
 #include "session_mgr.h"
 #include "flight_timer.h"
 #include "session_upload.h"
+#include "power_mgr.h"
 
 LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -320,12 +321,32 @@ static int init_modem(void)
 	int err;
 
 	LOG_INF("Initializing modem...");
+	
+	/* After system restart (especially from SYSTEMOFF), give hardware time to stabilize.
+	 * The modem hardware needs time to power up and be ready for initialization.
+	 */
+	k_sleep(K_MSEC(1000));
 
+	LOG_INF("Calling nrf_modem_lib_init()...");
 	err = nrf_modem_lib_init();
 	if (err) {
 		LOG_ERR("Modem library init failed: %d", err);
+		/* Error code meanings (from nrf_modem_lib.h):
+		 * -1 (NRF_EPERM): Already initialized
+		 * -116 (NRF_ETIMEDOUT): Operation timed out
+		 * -5 (NRF_EIO): Firmware issue or I/O error
+		 */
+		if (err == -1) {
+			LOG_ERR("Modem library already initialized - this should not happen after reset");
+		} else if (err == -116) {
+			LOG_ERR("Modem init timed out - modem hardware may need more time or reset");
+		} else if (err == -5) {
+			LOG_ERR("Modem firmware issue - may need reprogramming");
+		}
 		return err;
 	}
+	
+	LOG_INF("Modem library initialized successfully");
 
 	/* Register LTE event handler */
 	lte_lc_register_handler(lte_handler);
@@ -734,10 +755,11 @@ static int init_barometer(void)
 		LOG_INF("BMP581 set to continuous mode");
 	}
 
-	/* Small delay to allow sensor to start continuous operation */
-	k_sleep(K_MSEC(100));
+	/* Delay to allow sensor to stabilize after switching to continuous mode */
+	/* With 128x oversampling at 10 Hz, the sensor needs time for first valid reading */
+	k_sleep(K_MSEC(500));
 
-	/* Trigger initial sample to verify it's working */
+	/* Trigger initial sample to verify it's working (but discard it) */
 	err = sensor_sample_fetch(bmp581_dev);
 	if (err) {
 		LOG_WRN("Failed to fetch initial barometer sample: %d", err);
@@ -775,12 +797,14 @@ static int read_barometer(float *pressure_pa, float *temperature_c)
 	*pressure_pa = sensor_value_to_double(&press);
 	*temperature_c = sensor_value_to_double(&temp);
 	
-	/* Validate readings are reasonable */
+	/* Validate readings are reasonable - reject invalid readings */
 	if (*pressure_pa < 50000.0f || *pressure_pa > 120000.0f) {
-		LOG_WRN("Pressure out of range: %.1f Pa", (double)*pressure_pa);
+		LOG_WRN("Pressure out of range: %.1f Pa (rejecting sample)", (double)*pressure_pa);
+		return -EINVAL;
 	}
 	if (*temperature_c < -50.0f || *temperature_c > 100.0f) {
-		LOG_WRN("Temperature out of range: %.1f C", (double)*temperature_c);
+		LOG_WRN("Temperature out of range: %.1f C (rejecting sample)", (double)*temperature_c);
+		return -EINVAL;
 	}
 
 	return 0;
@@ -889,6 +913,12 @@ int main(void)
 		return err;
 	}
 
+	/* Initialize power management (USB detection, battery shutdown) */
+	err = power_mgr_init();
+	if (err) {
+		LOG_WRN("Power manager init failed: %d (continuing without power management)", err);
+	}
+
 	/* Initialize A-GNSS work and SUPL assistance */
 	k_work_init(&agnss_data_get_work, agnss_data_get_work_fn);
 	k_work_init_delayable(&lte_disable_work, lte_disable_work_fn);
@@ -942,8 +972,11 @@ int main(void)
 	while (1) {
 		int64_t now = k_uptime_get();
 
-		/* Process GPS PVT data if available */
-		if (k_sem_take(&pvt_data_sem, K_NO_WAIT) == 0) {
+		/* Skip flight_timer processing if shutdown is in progress */
+		bool shutting_down = power_mgr_is_shutting_down();
+
+		/* Process GPS PVT data if available (skip during shutdown) */
+		if (!shutting_down && k_sem_take(&pvt_data_sem, K_NO_WAIT) == 0) {
 			flight_timer_process_gps(&last_pvt);
 			
 			/* Check flight status for LTE reception management */
@@ -961,8 +994,8 @@ int main(void)
 			}
 		}
 
-		/* Sample barometer at 10 Hz */
-		if (now - last_baro_time >= BARO_SAMPLE_INTERVAL_MS) {
+		/* Sample barometer at 10 Hz (skip during shutdown) */
+		if (!shutting_down && now - last_baro_time >= BARO_SAMPLE_INTERVAL_MS) {
 			float pressure, temperature;
 			err = read_barometer(&pressure, &temperature);
 			if (err == 0) {
@@ -1171,6 +1204,18 @@ int main(void)
 				get_modem_status(modem_status, sizeof(modem_status));
 			}
 			
+			/* Get battery state */
+			struct power_mgr_battery_state battery_state;
+			char battery_info[128] = "N/A";
+			if (power_mgr_get_battery_state(&battery_state) == 0 && battery_state.valid) {
+				snprintf(battery_info, sizeof(battery_info),
+					"%.3fV, %.1fmA, %.1fC, USB=%s",
+					(double)battery_state.voltage_v,
+					(double)battery_state.current_ma,
+					(double)battery_state.temperature_c,
+					battery_state.usb_connected ? "yes" : "no");
+			}
+			
 			LOG_INF("STATUS: time=%s, gps_state=%s, baro_state=%s, "
 				"lat=%.6f, lon=%.6f, speed=%.1f kts, "
 				"pressure=%.1f Pa, temp=%.1f C, mem=%s, cpu=%s",
@@ -1187,15 +1232,24 @@ int main(void)
 			
 			LOG_INF("GPS_FIX_STATUS: %s", gps_fix_status);
 			LOG_INF("MODEM_STATUS: %s", modem_status);
+			LOG_INF("BATTERY_STATUS: %s", battery_info);
 			
 			last_status_time = now;
 		}
 
-		/* Periodic session save */
-		flight_timer_periodic_update();
+		/* Periodic session save (skip during shutdown) */
+		if (!shutting_down) {
+			flight_timer_periodic_update();
+		}
 
 		/* Periodic session upload */
 		session_upload_periodic_update();
+
+		/* Power management update (USB detection, linger/shutdown) */
+		power_mgr_periodic_update();
+
+		/* Check for serial commands (e.g., "shutdown" to test shutdown sequence) */
+		power_mgr_check_serial_commands();
 
 		/* Sleep until next iteration */
 		k_msleep(MAIN_LOOP_INTERVAL_MS);

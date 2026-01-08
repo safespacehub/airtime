@@ -94,5 +94,12 @@ int64_t session_mgr_get_elapsed_ms(void);
  */
 void session_mgr_generate_uuid(char *buf);
 
+/**
+ * @brief Rotate existing session to old-{uuid}.json
+ * Marks current session as old without starting a new session
+ * @return 0 on success, negative errno on failure
+ */
+int session_mgr_rotate_session(void);
+
 #endif /* SESSION_MGR_H */
 

@@ -44,6 +44,8 @@ static baro_state_t last_baro_state = BARO_STATE_GROUND;
 static float baro_samples[MAX_BARO_SAMPLES];
 static uint8_t baro_sample_count = 0;
 static uint32_t total_baro_samples_collected = 0;  /* Total samples collected since start (never reset) */
+static uint32_t baro_samples_discarded = 0;  /* Count of samples discarded at startup */
+#define BARO_SAMPLES_TO_DISCARD 10  /* Discard first 10 samples as they may be wrong */
 
 /* Sample rate tracking */
 static uint32_t total_samples_collected = 0;  /* Total samples in current status period */
@@ -208,6 +210,13 @@ uint16_t flight_timer_get_status_changes(struct state_change_entry *buffer, uint
 
 static void collect_baro_sample(float pressure_pa)
 {
+	/* Discard first 10 samples as they may be wrong */
+	if (baro_samples_discarded < BARO_SAMPLES_TO_DISCARD) {
+		baro_samples_discarded++;
+		total_baro_samples_collected++;  /* Still count for state change logic */
+		return;
+	}
+	
 	if (baro_sample_count < MAX_BARO_SAMPLES) {
 		baro_samples[baro_sample_count++] = pressure_pa;
 		total_samples_collected++;  /* Track for rate calculation */
@@ -269,6 +278,7 @@ int flight_timer_init(void)
 	baro_sample_count = 0;
 	total_samples_collected = 0;
 	total_baro_samples_collected = 0;
+	baro_samples_discarded = 0;
 	status_period_start_ms = 0;
 	
 	/* Initialize status change buffer with default state */
@@ -299,6 +309,7 @@ int flight_timer_start(void)
 	baro_sample_count = 0;
 	total_samples_collected = 0;
 	total_baro_samples_collected = 0;
+	baro_samples_discarded = 0;
 	status_period_start_ms = timer_data.session_start_ms;
 	
 	/* Reset status change buffer and initialize with default state */

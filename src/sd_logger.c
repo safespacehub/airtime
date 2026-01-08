@@ -409,3 +409,21 @@ int sd_logger_delete_file(const char *filename)
 	k_mutex_unlock(&sd_logger_mutex);
 	return ret;
 }
+
+int sd_logger_wait_for_operations_complete(int32_t timeout_ms)
+{
+	if (!mounted) {
+		return 0;  /* Not mounted, nothing to wait for */
+	}
+
+	/* Try to acquire the mutex - if we can get it, no operations are in progress */
+	int ret = k_mutex_lock(&sd_logger_mutex, K_MSEC(timeout_ms));
+	if (ret == 0) {
+		/* Got the mutex - no operations in progress, release it */
+		k_mutex_unlock(&sd_logger_mutex);
+		return 0;
+	} else {
+		/* Timeout - operations still in progress */
+		return -ETIMEDOUT;
+	}
+}

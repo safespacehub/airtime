@@ -16,6 +16,7 @@ LOG_MODULE_REGISTER(baro_state, CONFIG_LOG_DEFAULT_LEVEL);
 #define SAMPLE_RATE_HZ          10      /* 10 Hz sampling */
 #define BUFFER_SECONDS          20      /* 20 second window */
 #define BUFFER_SIZE             (SAMPLE_RATE_HZ * BUFFER_SECONDS)  /* 200 samples */
+#define SAMPLES_TO_DISCARD      10      /* Discard first 10 samples as they may be wrong */
 
 /* Thresholds */
 #define STDDEV_FLIGHT_THRESHOLD_FT  3.0f    /* StdDev > 3.0 ft = flight */
@@ -39,6 +40,7 @@ static struct altitude_sample sample_buffer[BUFFER_SIZE];
 static uint16_t buffer_head = 0;
 static uint16_t buffer_count = 0;
 static bool buffer_filled_logged = false;  /* Track if we've logged buffer fill */
+static uint32_t samples_discarded = 0;  /* Count of samples discarded at startup */
 
 static struct baro_state_data state_data;
 static baro_state_t last_vertical_state = BARO_STATE_GROUND;  /* Track last climbing/descending state */
@@ -129,6 +131,7 @@ int baro_state_init(void)
 	buffer_head = 0;
 	buffer_count = 0;
 	buffer_filled_logged = false;
+	samples_discarded = 0;
 	
 	state_data.state = BARO_STATE_GROUND;
 	state_data.prev_state = BARO_STATE_GROUND;
@@ -151,6 +154,14 @@ bool baro_state_update(float pressure_pa, float temperature_c)
 	state_data.pressure_pa = pressure_pa;
 	state_data.temperature_c = temperature_c;
 	state_data.altitude_ft = baro_pressure_to_altitude_ft(pressure_pa);
+
+	/* Discard first 10 samples as they may be wrong */
+	if (samples_discarded < SAMPLES_TO_DISCARD) {
+		samples_discarded++;
+		/* Don't add to buffer, but still update current values for display */
+		/* Return false to indicate no state change */
+		return false;
+	}
 
 	/* Add sample to buffer */
 	add_sample(state_data.altitude_ft, now);

@@ -88,5 +88,13 @@ int sd_logger_list_files(const char *pattern, char filenames[][64], size_t max_f
  */
 int sd_logger_delete_file(const char *filename);
 
+/**
+ * @brief Wait for all filesystem operations to complete
+ * Attempts to acquire the filesystem mutex to ensure no operations are in progress
+ * @param timeout_ms Maximum time to wait in milliseconds
+ * @return 0 if filesystem is ready (no operations in progress), negative errno on timeout
+ */
+int sd_logger_wait_for_operations_complete(int32_t timeout_ms);
+
 #endif /* SD_LOGGER_H */
 

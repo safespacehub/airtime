@@ -6,6 +6,9 @@
 #include "session_mgr.h"
 #include "rtc_sync.h"
 #include "sd_logger.h"
+#include "flight_timer.h"
+#include "gps_state.h"
+#include <hw_id.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/random/random.h>
@@ -43,7 +46,8 @@ static int rotate_existing_session(void)
 {
 	char old_uuid[UUID_STRING_LEN] = {0};
 	char new_filename[64];
-	char json_buffer[256];
+	static char json_buffer[6144];  /* Static to avoid stack overflow */
+	char hw_id[HW_ID_LEN];
 	int ret;
 	
 	/* Check if session.json exists */
@@ -52,13 +56,15 @@ static int rotate_existing_session(void)
 		return 0;
 	}
 	
-	/* Try to read the UUID from the existing file */
+	/* Read the full session file */
 	ret = sd_logger_read_file("session.json", json_buffer, sizeof(json_buffer) - 1);
-	if (ret > 0) {
+	if (ret <= 0) {
+		LOG_WRN("Failed to read session file for rotation: %d", ret);
+		/* Still try to rotate with fallback name */
+	} else {
 		json_buffer[ret] = '\0';
 		
 		/* Parse UUID from JSON: {"uuid":"...",...} */
-		/* Simple extraction - look for "uuid":" */
 		const char *uuid_start = strstr(json_buffer, "\"uuid\":\"");
 		if (uuid_start != NULL) {
 			uuid_start += 8; /* Skip past "uuid":" */
@@ -67,14 +73,56 @@ static int rotate_existing_session(void)
 				size_t uuid_len = uuid_end - uuid_start;
 				memcpy(old_uuid, uuid_start, uuid_len);
 				old_uuid[uuid_len] = '\0';
-			} else {
-				LOG_WRN("UUID extraction failed");
 			}
-		} else {
-			LOG_WRN("UUID not found in JSON");
 		}
-	} else {
-		LOG_WRN("Failed to read file for rotation: %d", ret);
+		
+		/* Get hardware ID */
+		memset(hw_id, 0, sizeof(hw_id));
+		if (hw_id_get(hw_id, sizeof(hw_id)) == 0 && hw_id[0] != '\0') {
+			static char json_temp[6144];  /* Static buffer for transformations */
+			
+			/* Add hw_id if not present */
+			if (strstr(json_buffer, "\"hw_id\"") == NULL) {
+				const char *first_brace = strchr(json_buffer, '{');
+				if (first_brace != NULL) {
+					int pos = 0;
+					pos += snprintf(json_temp + pos, sizeof(json_temp) - pos, "{\"hw_id\":\"%s\"", hw_id);
+					pos += snprintf(json_temp + pos, sizeof(json_temp) - pos, ",%s", first_brace + 1);
+					memcpy(json_buffer, json_temp, sizeof(json_buffer) - 1);
+					json_buffer[sizeof(json_buffer) - 1] = '\0';
+					ret = strlen(json_buffer);
+				}
+			}
+			
+			/* Add "closed": true if not present */
+			if (strstr(json_buffer, "\"closed\"") == NULL) {
+				char *closing_brace = strrchr(json_buffer, '}');
+				if (closing_brace != NULL) {
+					size_t insert_pos = closing_brace - json_buffer;
+					memcpy(json_temp, json_buffer, insert_pos);
+					json_temp[insert_pos] = '\0';
+					
+					/* Add comma if needed */
+					char *before = json_temp + insert_pos - 1;
+					while (before > json_temp && (*before == ' ' || *before == '\t' || *before == '\n' || *before == '\r')) {
+						before--;
+					}
+					if (before > json_temp && *before != '{' && *before != '[') {
+						strcat(json_temp, ", ");
+					} else if (before > json_temp) {
+						strcat(json_temp, " ");
+					}
+					
+					strcat(json_temp, "\"closed\": true}");
+					memcpy(json_buffer, json_temp, sizeof(json_buffer) - 1);
+					json_buffer[sizeof(json_buffer) - 1] = '\0';
+					ret = strlen(json_buffer);
+				}
+			}
+			
+			/* Write updated JSON back to file before renaming */
+			sd_logger_write_file("session.json", json_buffer, ret);
+		}
 	}
 	
 	/* Generate new filename: either old-{uuid}.json or timestamp-based */
@@ -236,6 +284,34 @@ int session_mgr_save(const struct state_change_entry *state_changes, uint16_t st
 		return ret;
 	}
 
+	/* Check if we've reached the maximum state changes - rotate session if so */
+	if (session.state_change_count >= MAX_STATE_CHANGES) {
+		LOG_INF("Session reached maximum state changes (%u) - rotating to new session", MAX_STATE_CHANGES);
+		
+		/* Rotate the current session (saves it as old-{uuid}.json) */
+		ret = rotate_existing_session();
+		if (ret != 0) {
+			LOG_ERR("Failed to rotate session at max state changes: %d", ret);
+			/* Continue anyway - try to start new session */
+		}
+		
+		/* Start a new session */
+		ret = session_mgr_start_session();
+		if (ret != 0) {
+			LOG_ERR("Failed to start new session after rotation: %d", ret);
+			return ret;
+		}
+		
+		/* Restart flight timer for the new session */
+		ret = flight_timer_start();
+		if (ret != 0) {
+			LOG_ERR("Failed to restart flight timer after session rotation: %d", ret);
+			/* Continue anyway - session is started */
+		}
+		
+		LOG_INF("New session started after reaching max state changes: %s", session.uuid);
+	}
+
 	return 0;
 }
 
@@ -255,5 +331,30 @@ int64_t session_mgr_get_elapsed_ms(void)
 		return 0;
 	}
 	return k_uptime_get() - session_uptime_start;
+}
+
+int session_mgr_rotate_session(void)
+{
+	/* First, save the current session state to ensure it's up to date */
+	/* Get current state changes from flight timer */
+	struct state_change_entry state_changes[MAX_STATE_CHANGES];
+	uint16_t count = flight_timer_get_status_changes(state_changes, MAX_STATE_CHANGES);
+	
+	if (count > 0) {
+		/* Update stop position with current GPS position */
+		const struct gps_state_data *gps_data = gps_state_get_data();
+		if (gps_data->latitude != 0.0 && gps_data->longitude != 0.0) {
+			session_mgr_update_position(gps_data->latitude, gps_data->longitude);
+		}
+		
+		int err = session_mgr_save(state_changes, count);
+		if (err != 0) {
+			LOG_WRN("Failed to save session before rotation: %d", err);
+			/* Continue with rotation anyway */
+		}
+	}
+	
+	/* Rotate the session */
+	return rotate_existing_session();
 }
 

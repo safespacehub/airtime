@@ -14,6 +14,7 @@ target_sources(app PRIVATE
     src/session_mgr.c
     src/flight_timer.c
     src/session_upload.c
+    src/power_mgr.c
 )
 
 target_include_directories(app PRIVATE src)

@@ -48,5 +48,11 @@ int session_upload_prior_sessions(void);
  */
 int session_upload_all(void);
 
+/**
+ * @brief Check if an upload is currently in progress
+ * @return true if upload is in progress, false otherwise
+ */
+bool session_upload_is_in_progress(void);
+
 #endif /* SESSION_UPLOAD_H */
 

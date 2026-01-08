@@ -61,7 +61,7 @@ static int inject_agnss_type(void *agnss, size_t agnss_size, uint16_t type, void
 		return -1;
 	}
 
-	LOG_INF("Injected A-GNSS data, type: %d, size: %d", type, agnss_size);
+	LOG_DBG("Injected A-GNSS data, type: %d, size: %d", type, agnss_size);
 
 	return 0;
 }
@@ -92,13 +92,9 @@ static int supl_logger(int level, const char *fmt, ...)
 		return ret;
 	}
 
-	/* Log errors, failures, and important status messages */
+	/* Log errors and failures at info level */
 	if (strstr(buffer, "error") != NULL ||
-	    strstr(buffer, "fail") != NULL ||
-	    strstr(buffer, "SUPL session") != NULL ||
-	    strstr(buffer, "SUPL server responded") != NULL ||
-	    strstr(buffer, "SUPL response received") != NULL ||
-	    strstr(buffer, "ossDecode success") != NULL) {
+	    strstr(buffer, "fail") != NULL) {
 		LOG_INF("SUPL: %s", buffer);
 	} else {
 		/* Everything else at debug level */
@@ -231,9 +227,13 @@ int supl_assist_request(struct nrf_modem_gnss_agnss_data_frame *agnss_request)
 		goto exit;
 	}
 
-	LOG_INF("Starting SUPL session");
+	LOG_DBG("Starting SUPL session");
 	err = supl_session(agnss_request);
-	LOG_INF("SUPL session %s", err ? "failed" : "completed");
+	if (err) {
+		LOG_ERR("SUPL session failed");
+	} else {
+		LOG_DBG("SUPL session completed");
+	}
 	close_supl_socket();
 
 exit:

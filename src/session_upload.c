@@ -41,6 +41,10 @@ static flight_status_t last_upload_status = FLIGHT_STATUS_GROUND;
 static bool upload_in_progress = false;
 static int64_t last_prior_session_upload_ms = 0;
 
+/* Static buffers to avoid stack overflow (moved from stack allocation) */
+static char json_buf_static[6144];  /* For do_upload() */
+static char json_buf_prior[6144];   /* For prior session reads/uploads (assumes hw_id and closed already present) */
+
 /* Forward declarations */
 static int do_upload(bool is_state_change);
 static bool is_lte_connected(void);
@@ -135,7 +139,6 @@ static int do_upload(bool is_state_change)
 	int fd = -1;
 	int retry_count = 0;
 	char hw_id[HW_ID_LEN];
-	char json_buf[6144];  /* Same size as session_mgr uses */
 	uint8_t recv_buf[256];
 	struct http_request req;
 	/* Build X-IOT-KEY header string */
@@ -177,7 +180,7 @@ static int do_upload(bool is_state_change)
 	LOG_DBG("Using hardware ID: %s", hw_id);
 
 	/* Build JSON payload */
-	int json_len = build_upload_json(json_buf, sizeof(json_buf), hw_id);
+	int json_len = build_upload_json(json_buf_static, sizeof(json_buf_static), hw_id);
 	if (json_len <= 0) {
 		LOG_ERR("Failed to build JSON payload");
 		return -EINVAL;
@@ -185,7 +188,7 @@ static int do_upload(bool is_state_change)
 
 	LOG_INF("Uploading session data (state_change=%d, size=%d bytes) to %s%s",
 		is_state_change, json_len, UPLOAD_HOSTNAME, UPLOAD_PATH);
-	LOG_DBG("JSON payload: %.*s", json_len < 256 ? json_len : 256, json_buf);
+	LOG_DBG("JSON payload: %.*s", json_len < 256 ? json_len : 256, json_buf_static);
 
 	/* Retry loop with exponential backoff */
 	upload_in_progress = true;
@@ -248,7 +251,7 @@ static int do_upload(bool is_state_change)
 		req.url = UPLOAD_PATH;
 		req.host = UPLOAD_HOSTNAME;
 		req.protocol = "HTTP/1.1";
-		req.payload = json_buf;
+		req.payload = json_buf_static;
 		req.payload_len = json_len;
 		req.response = http_response_cb;
 		req.recv_buf = recv_buf;
@@ -465,7 +468,7 @@ int session_upload_prior_sessions(void)
 {
 	int err;
 	char hw_id[HW_ID_LEN];
-	char filenames[32][64];  /* Max 32 prior session files */
+	static char filenames[32][64];  /* Max 32 prior session files - static to avoid stack overflow */
 	size_t found_count = 0;
 	int uploaded_count = 0;
 	int deleted_count = 0;
@@ -514,52 +517,22 @@ int session_upload_prior_sessions(void)
 
 	/* Process each file */
 	for (size_t i = 0; i < found_count; i++) {
-		char json_buf[6144];  /* Same size as session_mgr uses */
-		char json_with_hwid[6144];
 		int json_len;
 		int json_file_len;
 
 		LOG_INF("Processing prior session file: %s", filenames[i]);
 
-		/* Read file contents */
-		json_file_len = sd_logger_read_file(filenames[i], json_buf, sizeof(json_buf) - 1);
+		/* Read file contents - assumes hw_id and "closed" are already present (added during rotation) */
+		json_file_len = sd_logger_read_file(filenames[i], json_buf_prior, sizeof(json_buf_prior) - 1);
 		if (json_file_len <= 0) {
 			LOG_ERR("Failed to read file %s: %d", filenames[i], json_file_len);
 			continue;
 		}
-		json_buf[json_file_len] = '\0';
+		json_buf_prior[json_file_len] = '\0';
+		json_len = json_file_len;
 
-		/* Check if hw_id is already in the JSON */
-		if (strstr(json_buf, "\"hw_id\"") != NULL) {
-			/* hw_id already present, use file as-is */
-			json_len = json_file_len;
-			memcpy(json_with_hwid, json_buf, json_len);
-			json_with_hwid[json_len] = '\0';
-		} else {
-			/* Need to add hw_id to JSON */
-			/* Find the opening brace and insert hw_id after it */
-			const char *first_brace = strchr(json_buf, '{');
-			if (first_brace == NULL) {
-				LOG_ERR("Invalid JSON in file %s: no opening brace", filenames[i]);
-				continue;
-			}
-
-			/* Build new JSON with hw_id */
-			int pos = 0;
-			pos += snprintf(json_with_hwid + pos, sizeof(json_with_hwid) - pos, "{\"hw_id\":\"%s\"", hw_id);
-			
-			/* Copy the rest of the JSON, skipping the opening brace */
-			const char *rest = first_brace + 1;
-			if (rest[0] != '\0') {
-				pos += snprintf(json_with_hwid + pos, sizeof(json_with_hwid) - pos, ",%s", rest);
-			} else {
-				pos += snprintf(json_with_hwid + pos, sizeof(json_with_hwid) - pos, "}");
-			}
-			json_len = pos;
-		}
-
-		/* Upload the JSON data */
-		err = upload_json_data(json_with_hwid, json_len, hw_id);
+		/* Upload the JSON data directly (hw_id and "closed" should already be present from rotation) */
+		err = upload_json_data(json_buf_prior, json_len, hw_id);
 		if (err == 0) {
 			/* Upload successful - delete the file */
 			err = sd_logger_delete_file(filenames[i]);
@@ -601,5 +574,10 @@ int session_upload_all(void)
 
 	LOG_INF("All sessions upload complete");
 	return 0;
+}
+
+bool session_upload_is_in_progress(void)
+{
+	return upload_in_progress;
 }
 

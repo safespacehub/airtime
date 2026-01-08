@@ -1,6 +1,6 @@
 {
     "format-version": 1,
-    "time": 1767849606,
+    "time": 1767907105,
     "files": [
         {
             "type": "application",
@@ -11,9 +11,9 @@
             "slot_index_primary": "1",
             "slot_index_secondary": "2",
             "version_MCUBOOT": "0.0.0+0",
-            "size": 367296,
+            "size": 376363,
             "file": "app.signed.bin",
-            "modtime": 1767849606
+            "modtime": 1767907105
         }
     ],
     "name": "app"
